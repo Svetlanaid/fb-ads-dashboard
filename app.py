@@ -309,8 +309,17 @@ else:
                 st.divider()
                 if curr == "MIXED":
                     st.info("Выбраны разные валюты")
+                elif curr == "RUB":
+                    st.info("Валюта: RUB")
                 else:
-                    st.info(f"Валюта: {curr}")
+                    # Специально для сайдбара запрашиваем актуальный курс
+                    sidebar_rates = get_rates(curr)
+                    sidebar_rub_rate = sidebar_rates.get("RUB") if sidebar_rates else None
+                    
+                    if sidebar_rub_rate:
+                        st.success(f"Курс: 1 {curr} = {sidebar_rub_rate:.4f} RUB")
+                    else:
+                        st.info(f"Валюта: {curr}")
                 
                 if st.button('🔄 Обновить'): st.rerun()
                 st.divider()
@@ -330,12 +339,34 @@ else:
                 st.stop()
 
             # --- ВЫВОД МЕТРИК ---
+            # --- ВЫВОД МЕТРИК ---
             st.divider()
             col_m = st.columns(6)
             
             if curr == "MIXED":
-                col_m[0].metric("Всего (Локальная)", "Разные валюты")
-                col_m[1].metric("С НДС (Локальная)", "Разные валюты")
+                # Группируем суммы по странам (кампаниям)
+                grouped_df = df_totals_filtered.groupby('Название кампании')[['Затраты', 'Затраты с НДС']].sum().reset_index()
+                
+                spend_lines = []
+                nds_lines = []
+                
+                for _, row in grouped_df.iterrows():
+                    c_name = row['Название кампании']
+                    # Находим валюту в нашем словаре (работает, т.к. названия совпадают)
+                    c_curr = merged_accounts.get(c_name, {}).get('currency', '')
+                    curr_text = f" ({c_curr})" if c_curr else ""
+                    
+                    # Формируем строчки списка
+                    spend_lines.append(f"{c_name}{curr_text} — <b>{row['Затраты']:,.0f}</b>")
+                    nds_lines.append(f"{c_name}{curr_text} — <b>{row['Затраты с НДС']:,.0f}</b>")
+                
+                # Склеиваем строки через HTML-тег <br> (перенос строки)
+                spend_html = "<br>".join(spend_lines)
+                nds_html = "<br>".join(nds_lines)
+                
+                # Выводим через markdown, имитируя стиль метрик Streamlit
+                col_m[0].markdown(f"<div style='font-size: 14px; color: gray; margin-bottom: 4px;'>Затраты (Лок.)</div><div style='font-size: 14px; line-height: 1.6;'>{spend_html}</div>", unsafe_allow_html=True)
+                col_m[1].markdown(f"<div style='font-size: 14px; color: gray; margin-bottom: 4px;'>С НДС (Лок.)</div><div style='font-size: 14px; line-height: 1.6;'>{nds_html}</div>", unsafe_allow_html=True)
             else:
                 col_m[0].metric(f"Затраты ({curr})", f"{df_totals_filtered['Затраты'].sum():,.0f}")
                 col_m[1].metric(f"Затраты с НДС ({curr})", f"{df_totals_filtered['Затраты с НДС'].sum():,.0f}")
@@ -362,36 +393,67 @@ else:
 
             st.subheader("Детальная таблица")
             
-            # 1. Создаем копию таблицы специально для красивого вывода
-            display_df = df_totals_filtered[['Название кампании', 'Показы', 'Клики', 'Охват', 'Затраты', 'Затраты с НДС', 'Затраты с НДС (RUB)']].copy()
-            
-            # 2. Округляем копейки, чтобы таблица была чистой (опционально, но так красивее)
-            display_df['Затраты'] = display_df['Затраты'].round(0).astype(int)
-            display_df['Затраты с НДС'] = display_df['Затраты с НДС'].round(0).astype(int)
-            
-            # 3. Переименовываем колонки
-            col_name_zatraty = f'Затраты ({curr})' if curr != "MIXED" else 'Затраты (Локальные)'
-            col_name_nds = f'Затраты с НДС ({curr})' if curr != "MIXED" else 'Затраты с НДС (Локальные)'
-            
-            display_df = display_df.rename(columns={
-                'Затраты': col_name_zatraty,
-                'Затраты с НДС': col_name_nds
-            })
-            
-            # 4. Выводим таблицу с форматированием
-            st.dataframe(
-                display_df.style.format({
-                    col_name_zatraty: "{:,.0f}",
-                    col_name_nds: "{:,.0f}",
-                    'Затраты с НДС (RUB)': "{:,.0f}",
-                    'Показы': "{:,.0f}",
-                    'Клики': "{:,.0f}",
-                    'Охват': "{:,.0f}"
-                }), 
-                use_container_width=True
-            )
-        else:
-            st.warning("Нет данных за выбранный период.")
+            if curr == "MIXED":
+                # Если выбрано несколько стран с разными валютами — делаем цикл
+                for _, row in df_totals_filtered.iterrows():
+                    c_name = row['Название кампании']
+                    # Достаем валюту конкретно для этой страны
+                    c_curr = merged_accounts.get(c_name, {}).get('currency', '')
+                    
+                    # Пишем название страны над ее таблицей
+                    st.markdown(f"#### {c_name}")
+                    
+                    # Создаем мини-таблицу из одной строки
+                    display_df = pd.DataFrame([row])[['Название кампании', 'Показы', 'Клики', 'Охват', 'Затраты', 'Затраты с НДС', 'Затраты с НДС (RUB)']].copy()
+                    
+                    display_df['Затраты'] = display_df['Затраты'].round(0).astype(int)
+                    display_df['Затраты с НДС'] = display_df['Затраты с НДС'].round(0).astype(int)
+                    
+                    col_name_zatraty = f'Затраты ({c_curr})'
+                    col_name_nds = f'Затраты с НДС ({c_curr})'
+                    
+                    display_df = display_df.rename(columns={
+                        'Затраты': col_name_zatraty,
+                        'Затраты с НДС': col_name_nds
+                    })
+                    
+                    st.dataframe(
+                        display_df.style.format({
+                            col_name_zatraty: "{:,.0f}",
+                            col_name_nds: "{:,.0f}",
+                            'Затраты с НДС (RUB)': "{:,.0f}",
+                            'Показы': "{:,.0f}",
+                            'Клики': "{:,.0f}",
+                            'Охват': "{:,.0f}"
+                        }), 
+                        use_container_width=True
+                    )
+            else:
+                # Если валюта одна — выводим всё в одной общей таблице, как раньше
+                display_df = df_totals_filtered[['Название кампании', 'Показы', 'Клики', 'Охват', 'Затраты', 'Затраты с НДС', 'Затраты с НДС (RUB)']].copy()
+                
+                display_df['Затраты'] = display_df['Затраты'].round(0).astype(int)
+                display_df['Затраты с НДС'] = display_df['Затраты с НДС'].round(0).astype(int)
+                
+                col_name_zatraty = f'Затраты ({curr})'
+                col_name_nds = f'Затраты с НДС ({curr})'
+                
+                display_df = display_df.rename(columns={
+                    'Затраты': col_name_zatraty,
+                    'Затраты с НДС': col_name_nds
+                })
+                
+                st.dataframe(
+                    display_df.style.format({
+                        col_name_zatraty: "{:,.0f}",
+                        col_name_nds: "{:,.0f}",
+                        'Затраты с НДС (RUB)': "{:,.0f}",
+                        'Показы': "{:,.0f}",
+                        'Клики': "{:,.0f}",
+                        'Охват': "{:,.0f}"
+                    }), 
+                    use_container_width=True
+                )
 
     except Exception as e:
         st.error(f"Ошибка при обработке данных: {e}")
