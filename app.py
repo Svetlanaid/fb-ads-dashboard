@@ -141,35 +141,33 @@ else:
         st.error(f"Ошибка загрузки списка аккаунтов: {e}")
         st.stop()
 
-# --- БЛОК ОБЪЕДИНЕНИЯ АККАУНТОВ ---
-        # Создаем новый словарь, где ключом будет СТРАНА, а значением - СПИСОК ID
-        merged_accounts = {}
-        
-        # Правила группировки (названия должны точно совпадать с тем, что в FB)
-        group_rules = {
-            "Indonesia": ["Indonesia", "Indonesia exec"],
-            "Philippines": ["PH exec", "PH usd", "Philippines"],
-            "Belarus": ["Belarus", "Belarus usd"]
-        }
+    # --- БЛОК ОБЪЕДИНЕНИЯ АККАУНТОВ ---
+    # Этот блок теперь выровнен правильно (на одном уровне с except и with st.sidebar)
+    merged_accounts = {}
+    
+    group_rules = {
+        "Indonesia": ["Indonesia", "Indonesia exec"],
+        "Philippines": ["PH exec", "PH usd", "Philippines"],
+        "Belarus": ["Belarus", "Belarus usd"]
+    }
 
-        # Проходим по всем аккаунтам, которые прислал FB
-        for acc_name, acc_info in accounts_dict.items():
-            target_group = None
-            # Проверяем, входит ли этот аккаунт в какую-то группу
-            for group_name, members in group_rules.items():
-                if acc_name in members:
-                    target_group = group_name
-                    break
-            
-            # Если группа найдена — добавляем ID в список этой группы
-            if target_group:
-                if target_group not in merged_accounts:
-                    merged_accounts[target_group] = {'ids': [], 'currency': acc_info['currency']}
-                merged_accounts[target_group]['ids'].append(acc_info['id'])
-            else:
-                # Если группы нет — оставляем аккаунт как одиночный пункт
-                merged_accounts[acc_name] = {'ids': [acc_info['id']], 'currency': acc_info['currency']}
-        # ----------------------------------
+    for acc_name, acc_info in accounts_dict.items():
+        target_group = None
+        for group_name, members in group_rules.items():
+            if acc_name in members:
+                target_group = group_name
+                break
+        
+        if target_group:
+            if target_group not in merged_accounts:
+                merged_accounts[target_group] = {'ids': [], 'currency': acc_info['currency']}
+            merged_accounts[target_group]['ids'].append(acc_info['id'])
+        else:
+            merged_accounts[acc_name] = {'ids': [acc_info['id']], 'currency': acc_info['currency']}
+    # ----------------------------------
+
+    # 2. Сайдбар: Настройки
+    with st.sidebar:
 
     # 2. Сайдбар: Настройки
     with st.sidebar:
