@@ -266,8 +266,6 @@ else:
         # ------------------------------------
 
         if len(all_data) > 0:
-
-        if len(all_data) > 0:
             df = pd.concat(all_data, ignore_index=True)
             
             # 1. Фильтрация по категории
