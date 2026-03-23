@@ -202,63 +202,57 @@ else:
             else:
                 break
 
-        if len(all_data) > 0:
-            # Дальше работаем с all_data вместо data["data"]
+        if len(all_accounts_data) > 0:
             df = pd.DataFrame(all_data)
-            # --- НОВЫЙ БЛОК: ФИЛЬТРАЦИЯ ПО КАТЕГОРИИ ---
+            
+            # 1. Фильтрация по категории (делаем сразу)
             if selected_category_label != "Все":
-                # Оставляем только те кампании, в названии которых есть нужное слово
-                # (case=False делает поиск нечувствительным к регистру)
                 df = df[df['campaign_name'].str.contains(category_substring, case=False, na=False)]
             
             if df.empty:
-                st.warning(f"В аккаунте не найдено кампаний категории '{selected_category_label}'")
+                st.warning(f"В категории '{selected_category_label}' нет данных")
                 st.stop()
-            # ------------------------------------------
-            # ... (остальной код подготовки DF остается прежним)
+
+            # 2. Основные расчеты (строго по порядку)
             df['Дата'] = pd.to_datetime(df['date_start'])
-            df['Затраты с НДС'] = df['Затраты'] * vat_mult
+            df['Затраты'] = df['spend'].astype(float) # Создаем базу
+            df['Затраты с НДС'] = df['Затраты'] * vat_mult # Считаем НДС
             
-            # Работа с курсом (обнови этот блок)
+            # 3. Работа с курсом (один раз)
             rates = get_rates(curr)
             rub_rate = rates.get("RUB") if rates else None
             
-            # Обычные рубли (без НДС)
-            df['Затраты (RUB)'] = (df['Затраты'] * rub_rate).round(0).astype(int) if rub_rate else 0
-            # Рубли С НДС
-            df['Затраты с НДС (RUB)'] = (df['Затраты с НДС'] * rub_rate).round(0).astype(int) if rub_rate else 0
-            df['Название кампании'] = df['campaign_name'].apply(clean_campaign_name)
+            if rub_rate:
+                df['Затраты (RUB)'] = (df['Затраты'] * rub_rate).round(0).astype(int)
+                df['Затраты с НДС (RUB)'] = (df['Затраты с НДС'] * rub_rate).round(0).astype(int)
+            else:
+                df['Затраты (RUB)'] = 0
+                df['Затраты с НДС (RUB)'] = 0
 
-            # --- БЛОК ОБЪЕДИНЕНИЯ СТРАН ---
+            # 4. Чистка имен и объединение стран
+            df['Название кампании'] = df['campaign_name'].apply(clean_campaign_name)
+            
             mapping = {
                 "Indonesia exec": "Indonesia",
                 "PH exec": "Philippines",
                 "PH usd": "Philippines",
                 "Belarus usd": "Belarus"
-                # Если появятся новые, просто добавляй их сюда через запятую
             }
-            # Заменяем старые названия на новые (объединенные)
             df['Название кампании'] = df['Название кампании'].replace(mapping)
-            # ------------------------------
-            
+
+            # 5. Типы данных и переименование
             df = df.rename(columns={'impressions': 'Показы', 'inline_link_clicks': 'Клики', 'reach': 'Охват'})
-            df['Показы'] = df['Показы'].astype(int)
-            df['Клики'] = df['Клики'].astype(int)
-            df['Охват'] = df['Охват'].astype(int)
+            for col in ['Показы', 'Клики', 'Охват']:
+                df[col] = df[col].astype(int)
 
-            # Работа с курсом
-            rates = get_rates(curr)
-            rub_rate = rates.get("RUB") if rates else None
-            df['Затраты (RUB)'] = (df['Затраты'] * rub_rate).round(0).astype(int) if rub_rate else 0
-
-            # Группировка для итоговой таблицы
+            # 6. Группировка (собираем все нужные колонки)
             df_totals = df.groupby('Название кампании').agg({
-                'Затраты': 'sum', 
-                'Затраты с НДС': 'sum', # Добавили
-                'Затраты (RUB)': 'sum', 
-                'Затраты с НДС (RUB)': 'sum', # Добавили
-                'Показы': 'sum', 
-                'Клики': 'sum', 
+                'Затраты': 'sum',
+                'Затраты с НДС': 'sum',
+                'Затраты (RUB)': 'sum',
+                'Затраты с НДС (RUB)': 'sum',
+                'Показы': 'sum',
+                'Клики': 'sum',
                 'Охват': 'sum'
             }).reset_index()
 
