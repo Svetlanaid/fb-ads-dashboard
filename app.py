@@ -304,17 +304,18 @@ else:
                 selected_campaigns = st.multiselect("3. Фильтр по кампаниям:", options=all_campaigns, default=all_campaigns)
                 
                 st.divider()
-                if curr == "MIXED":
-                    st.info("Выбраны разные валюты")
-                elif curr == "RUB":
-                    st.info("Валюта: RUB")
-                else:
-                    sidebar_rates = get_rates(curr)
-                    sidebar_rub_rate = sidebar_rates.get("RUB") if sidebar_rates else None
-                    if sidebar_rub_rate:
-                        st.success(f"Курс: 1 {curr} = {sidebar_rub_rate:.4f} RUB")
+                
+                # Идем по всем уникальным валютам из выбранных стран
+                for c in sorted(list(selected_currencies)):
+                    if c == "RUB":
+                        st.info("Валюта: RUB")
                     else:
-                        st.info(f"Валюта: {curr}")
+                        sidebar_rates = get_rates(c)
+                        sidebar_rub_rate = sidebar_rates.get("RUB") if sidebar_rates else None
+                        if sidebar_rub_rate:
+                            st.success(f"Курс: 1 {c} = {sidebar_rub_rate:.4f} RUB")
+                        else:
+                            st.info(f"Валюта: {c}")
                 
                 if st.button('🔄 Обновить'): st.rerun()
                 st.divider()
@@ -365,15 +366,33 @@ else:
             # --- ГРАФИК ---
             st.divider()
             st.subheader("📈 Динамика расходов")
-            current_camps = list(df_totals_filtered['Название кампании'].unique())
-            camp_opts = (["Все кампании"] + current_camps) if len(selected_campaigns) > 1 else current_camps
-            camp_to_plot = st.selectbox("Выбор для графика:", options=camp_opts)
+            
+            unique_countries = sorted(df_totals_filtered['Страна'].unique())
+            current_camps = sorted(df_totals_filtered['Название кампании'].unique())
+            
+            # Формируем умный список для выпадающего меню графика
+            camp_opts = ["Все выбранные данные (Сумма)"]
+            
+            # Добавляем страны (если их выбрано несколько)
+            if len(unique_countries) > 1:
+                camp_opts.extend([f"🌎 Страна: {c}" for c in unique_countries])
+                
+            # Добавляем сами кампании
+            camp_opts.extend([f"📢 Кампания: {c}" for c in current_camps])
+            
+            camp_to_plot = st.selectbox("Выберите срез для графика:", options=camp_opts)
 
-            if camp_to_plot == "Все кампании":
+            # Определяем, что именно мы фильтруем для отрисовки
+            if camp_to_plot == "Все выбранные данные (Сумма)":
                 d_data = df_daily_filtered.groupby('Дата').agg({'Затраты с НДС (RUB)': 'sum'}).reset_index()
+            elif camp_to_plot.startswith("🌎 Страна: "):
+                c_name = camp_to_plot.replace("🌎 Страна: ", "")
+                d_data = df_daily_filtered[df_daily_filtered['Страна'] == c_name].groupby('Дата').agg({'Затраты с НДС (RUB)': 'sum'}).reset_index()
             else:
-                d_data = df_daily_filtered[df_daily_filtered['Название кампании'] == camp_to_plot].groupby('Дата').agg({'Затраты с НДС (RUB)': 'sum'}).reset_index()
+                c_name = camp_to_plot.replace("📢 Кампания: ", "")
+                d_data = df_daily_filtered[df_daily_filtered['Название кампании'] == c_name].groupby('Дата').agg({'Затраты с НДС (RUB)': 'sum'}).reset_index()
 
+            # Рисуем график
             fig = px.line(d_data.sort_values('Дата'), x='Дата', y='Затраты с НДС (RUB)', markers=True, line_shape='spline')
             st.plotly_chart(fig, use_container_width=True)
 
