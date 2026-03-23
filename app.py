@@ -196,10 +196,6 @@ else:
             
         # Если выбрана только одна валюта, мы можем ее показывать. Если больше - ставим заглушку
         curr = list(selected_currencies)[0] if len(selected_currencies) == 1 else "MIXED"
-        
-        list_of_ids = merged_accounts[selected_label]['ids']
-        curr = merged_accounts[selected_label]['currency']
-        vat_mult = VAT_MAP.get(list_of_ids[0], 1.0)
 
         category_options = {"Все": "", "Водители": "exec", "Клиенты": "clnt", "Smm": "smm", "Партнеры": "Prtn"}
         selected_category_label = st.selectbox("Категория:", list(category_options.keys()))
