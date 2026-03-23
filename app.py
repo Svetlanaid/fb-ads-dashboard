@@ -174,8 +174,28 @@ else:
         else:
             st.info("Выберите дату окончания")
             st.stop()
+        
+        # СТАЛО:
+        selected_labels = st.multiselect(
+            "Рекламный аккаунт:", 
+            options=sorted(list(merged_accounts.keys())),
+            default=[sorted(list(merged_accounts.keys()))[0]] if merged_accounts else [] # По умолчанию выбираем первый
+        )
+        
+        if not selected_labels:
+            st.warning("Выберите хотя бы один рекламный аккаунт.")
+            st.stop()
 
-        selected_label = st.selectbox("Рекламный аккаунт:", sorted(list(merged_accounts.keys())))
+        # Собираем все ID и проверяем валюты
+        list_of_ids = []
+        selected_currencies = set()
+        
+        for label in selected_labels:
+            list_of_ids.extend(merged_accounts[label]['ids'])
+            selected_currencies.add(merged_accounts[label]['currency'])
+            
+        # Если выбрана только одна валюта, мы можем ее показывать. Если больше - ставим заглушку
+        curr = list(selected_currencies)[0] if len(selected_currencies) == 1 else "MIXED"
         
         list_of_ids = merged_accounts[selected_label]['ids']
         curr = merged_accounts[selected_label]['currency']
@@ -191,11 +211,18 @@ else:
     try:
         all_data = []
         
+# 5. ЗАГРУЗКА И ОБРАБОТКА ДАННЫХ
+    try:
+        all_data = []
+        
         for single_id in list_of_ids:
+            # --- НОВОЕ: Определяем налог и валюту прямо перед запросом для каждого ID ---
+            current_vat_mult = VAT_MAP.get(single_id, 1.0)
+            
             temp_acc_id = f"act_{single_id}"
             insights_url = f"https://graph.facebook.com/v19.0/{temp_acc_id}/insights"
             params = {
-                "fields": "campaign_name,spend,impressions,inline_link_clicks,reach,date_start",
+                "fields": "account_currency,campaign_name,spend,impressions,inline_link_clicks,reach,date_start", # Добавили account_currency
                 "time_range": f"{{'since':'{start_date}','until':'{end_date}'}}",
                 "level": "campaign",
                 "time_increment": 1, 
@@ -205,17 +232,47 @@ else:
             
             response = requests.get(insights_url, params=params).json()
             
+            temp_data = []
             while True:
                 if "data" in response:
-                    all_data.extend(response["data"])
+                    temp_data.extend(response["data"])
                 if "paging" in response and "next" in response["paging"]:
                     response = requests.get(response["paging"]["next"]).json()
                 else:
                     break
-        
+                    
+            # --- НОВОЕ: Сразу считаем НДС и Рубли для данных этого конкретного аккаунта ---
+            if temp_data:
+                df_temp = pd.DataFrame(temp_data)
+                df_temp['Затраты'] = df_temp['spend'].astype(float)
+                df_temp['Затраты с НДС'] = df_temp['Затраты'] * current_vat_mult
+                
+                # Забираем валюту кабинета из ответа FB (если есть, иначе fallback)
+                acc_curr = df_temp['account_currency'].iloc[0] if 'account_currency' in df_temp.columns else "USD"
+                
+                rates = get_rates(acc_curr)
+                rub_rate = rates.get("RUB") if rates else None
+                
+                if rub_rate:
+                    df_temp['Затраты (RUB)'] = (df_temp['Затраты'] * rub_rate).round(0).astype(int)
+                    df_temp['Затраты с НДС (RUB)'] = (df_temp['Затраты с НДС'] * rub_rate).round(0).astype(int)
+                else:
+                    df_temp['Затраты (RUB)'] = 0
+                    df_temp['Затраты с НДС (RUB)'] = 0
+                    
+                # Оставляем только нужные колонки для общего массива
+                cols_to_keep = ['date_start', 'campaign_name', 'impressions', 'inline_link_clicks', 'reach', 'Затраты', 'Затраты с НДС', 'Затраты (RUB)', 'Затраты с НДС (RUB)']
+                # Если в df_temp нет каких-то колонок (например, нет кликов), добавляем их нулями
+                for c in cols_to_keep:
+                    if c not in df_temp.columns:
+                         df_temp[c] = 0 if c not in ['date_start', 'campaign_name'] else None
+                         
+                all_data.append(df_temp[cols_to_keep])
+
         if len(all_data) > 0:
-            df = pd.DataFrame(all_data)
+            df = pd.concat(all_data, ignore_index=True) # Собираем все DataFrame в один
             
+            # 1. Фильтрация по категории
             if selected_category_label != "Все":
                 df = df[df['campaign_name'].str.contains(category_substring, case=False, na=False)]
             
@@ -223,46 +280,9 @@ else:
                 st.warning(f"В категории '{selected_category_label}' нет данных")
                 st.stop()
 
-            # Расчеты
+            # 2. Форматирование дат и чистка имен
             df['Дата'] = pd.to_datetime(df['date_start'])
-            df['Затраты'] = df['spend'].astype(float)
-            df['Затраты с НДС'] = df['Затраты'] * vat_mult
-            
-            rates = get_rates(curr)
-            rub_rate = rates.get("RUB") if rates else None
-            
-            if rub_rate:
-                df['Затраты (RUB)'] = (df['Затраты'] * rub_rate).round(0).astype(int)
-                df['Затраты с НДС (RUB)'] = (df['Затраты с НДС'] * rub_rate).round(0).astype(int)
-            else:
-                df['Затраты (RUB)'] = 0
-                df['Затраты с НДС (RUB)'] = 0
-
             df['Название кампании'] = df['campaign_name'].apply(clean_campaign_name)
-            
-            mapping = {
-                "Indonesia exec": "Indonesia",
-                "PH exec": "Philippines",
-                "PH usd": "Philippines",
-                "Belarus usd": "Belarus"
-            }
-            df['Название кампании'] = df['Название кампании'].replace(mapping)
-
-            df = df.rename(columns={'impressions': 'Показы', 'inline_link_clicks': 'Клики', 'reach': 'Охват'})
-            for col in ['Показы', 'Клики', 'Охват']:
-                df[col] = df[col].astype(int)
-
-            df_totals = df.groupby('Название кампании').agg({
-                'Затраты': 'sum',
-                'Затраты с НДС': 'sum',
-                'Затраты (RUB)': 'sum',
-                'Затраты с НДС (RUB)': 'sum',
-                'Показы': 'sum',
-                'Клики': 'sum',
-                'Охват': 'sum'
-            }).reset_index()
-
-            all_campaigns = sorted(df_totals['Название кампании'].unique().tolist())
             with st.sidebar:
                 st.divider()
                 selected_campaigns = st.multiselect("3. Фильтр:", options=all_campaigns, default=all_campaigns)
@@ -289,8 +309,14 @@ else:
             # --- ВЫВОД МЕТРИК ---
             st.divider()
             col_m = st.columns(6)
-            col_m[0].metric(f"Затраты ({curr})", f"{df_totals_filtered['Затраты'].sum():,.0f}")
-            col_m[1].metric(f"Затраты с НДС ({curr})", f"{df_totals_filtered['Затраты с НДС'].sum():,.0f}")
+            
+            if curr == "MIXED":
+                col_m[0].metric("Всего (Локальная)", "Разные валюты")
+                col_m[1].metric("С НДС (Локальная)", "Разные валюты")
+            else:
+                col_m[0].metric(f"Затраты ({curr})", f"{df_totals_filtered['Затраты'].sum():,.0f}")
+                col_m[1].metric(f"Затраты с НДС ({curr})", f"{df_totals_filtered['Затраты с НДС'].sum():,.0f}")
+                
             col_m[2].metric("Затраты с НДС (RUB)", f"{df_totals_filtered['Затраты с НДС (RUB)'].sum():,.0f} ₽")
             col_m[3].metric("Показы", f"{df_totals_filtered['Показы'].sum():,}")
             col_m[4].metric("Клики", f"{df_totals_filtered['Клики'].sum():,}")
@@ -320,17 +346,20 @@ else:
             display_df['Затраты'] = display_df['Затраты'].round(0).astype(int)
             display_df['Затраты с НДС'] = display_df['Затраты с НДС'].round(0).astype(int)
             
-            # 3. Переименовываем колонки, подставляя текущую валюту (curr)
+            # 3. Переименовываем колонки
+            col_name_zatraty = f'Затраты ({curr})' if curr != "MIXED" else 'Затраты (Локальные)'
+            col_name_nds = f'Затраты с НДС ({curr})' if curr != "MIXED" else 'Затраты с НДС (Локальные)'
+            
             display_df = display_df.rename(columns={
-                'Затраты': f'Затраты ({curr})',
-                'Затраты с НДС': f'Затраты с НДС ({curr})'
+                'Затраты': col_name_zatraty,
+                'Затраты с НДС': col_name_nds
             })
             
-            # 4. Выводим таблицу с форматированием (без точек и копеек)
+            # 4. Выводим таблицу с форматированием
             st.dataframe(
                 display_df.style.format({
-                    f'Затраты ({curr})': "{:,.0f}",
-                    f'Затраты с НДС ({curr})': "{:,.0f}",
+                    col_name_zatraty: "{:,.0f}",
+                    col_name_nds: "{:,.0f}",
                     'Затраты с НДС (RUB)': "{:,.0f}",
                     'Показы': "{:,.0f}",
                     'Клики': "{:,.0f}",
