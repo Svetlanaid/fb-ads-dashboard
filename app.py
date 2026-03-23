@@ -207,58 +207,65 @@ else:
     try:
         all_data = []
         
-        for single_id in list_of_ids:
-            current_vat_mult = VAT_MAP.get(single_id, 1.0)
-            
-            temp_acc_id = f"act_{single_id}"
-            insights_url = f"https://graph.facebook.com/v19.0/{temp_acc_id}/insights"
-            params = {
-                "fields": "account_currency,campaign_name,spend,impressions,inline_link_clicks,reach,date_start",
-                "time_range": f"{{'since':'{start_date}','until':'{end_date}'}}",
-                "level": "campaign",
-                "time_increment": 1, 
-                "limit": 500,
-                "access_token": TOKEN
-            }
-            
-            response = requests.get(insights_url, params=params).json()
-            
-            temp_data = []
-            while True:
-                if "data" in response:
-                    temp_data.extend(response["data"])
-                if "paging" in response and "next" in response["paging"]:
-                    response = requests.get(response["paging"]["next"]).json()
-                else:
-                    break
+        # --- ИСПРАВЛЕННЫЙ ДВОЙНОЙ ЦИКЛ ---
+        # Идем по каждой выбранной стране...
+        for label in selected_labels:
+            # ...и по каждому аккаунту внутри нее
+            for single_id in merged_accounts[label]['ids']:
+                current_vat_mult = VAT_MAP.get(single_id, 1.0)
+                
+                temp_acc_id = f"act_{single_id}"
+                insights_url = f"https://graph.facebook.com/v19.0/{temp_acc_id}/insights"
+                params = {
+                    "fields": "account_currency,campaign_name,spend,impressions,inline_link_clicks,reach,date_start",
+                    "time_range": f"{{'since':'{start_date}','until':'{end_date}'}}",
+                    "level": "campaign",
+                    "time_increment": 1, 
+                    "limit": 500,
+                    "access_token": TOKEN
+                }
+                
+                response = requests.get(insights_url, params=params).json()
+                
+                temp_data = []
+                while True:
+                    if "data" in response:
+                        temp_data.extend(response["data"])
+                    if "paging" in response and "next" in response["paging"]:
+                        response = requests.get(response["paging"]["next"]).json()
+                    else:
+                        break
+                        
+                if temp_data:
+                    df_temp = pd.DataFrame(temp_data)
                     
-            if temp_data:
-                df_temp = pd.DataFrame(temp_data)
-                
-                # Добавляем привязку к Стране из верхнего меню
-                df_temp['Страна'] = label 
-                
-                df_temp['Затраты'] = df_temp['spend'].astype(float)
-                df_temp['Затраты с НДС'] = df_temp['Затраты'] * current_vat_mult
-                
-                acc_curr = df_temp['account_currency'].iloc[0] if 'account_currency' in df_temp.columns else "USD"
-                
-                rates = get_rates(acc_curr)
-                rub_rate = rates.get("RUB") if rates else None
-                
-                if rub_rate:
-                    df_temp['Затраты (RUB)'] = (df_temp['Затраты'] * rub_rate).round(0).astype(int)
-                    df_temp['Затраты с НДС (RUB)'] = (df_temp['Затраты с НДС'] * rub_rate).round(0).astype(int)
-                else:
-                    df_temp['Затраты (RUB)'] = 0
-                    df_temp['Затраты с НДС (RUB)'] = 0
+                    # ТЕПЕРЬ СТРАНА ПРИВЯЗЫВАЕТСЯ ПРАВИЛЬНО ИЗ ЦИКЛА!
+                    df_temp['Страна'] = label 
                     
-                cols_to_keep = ['date_start', 'campaign_name', 'Страна', 'impressions', 'inline_link_clicks', 'reach', 'Затраты', 'Затраты с НДС', 'Затраты (RUB)', 'Затраты с НДС (RUB)']
-                for c in cols_to_keep:
-                    if c not in df_temp.columns:
-                         df_temp[c] = 0 if c not in ['date_start', 'campaign_name', 'Страна'] else None
-                         
-                all_data.append(df_temp[cols_to_keep])
+                    df_temp['Затраты'] = df_temp['spend'].astype(float)
+                    df_temp['Затраты с НДС'] = df_temp['Затраты'] * current_vat_mult
+                    
+                    acc_curr = df_temp['account_currency'].iloc[0] if 'account_currency' in df_temp.columns else "USD"
+                    
+                    rates = get_rates(acc_curr)
+                    rub_rate = rates.get("RUB") if rates else None
+                    
+                    if rub_rate:
+                        df_temp['Затраты (RUB)'] = (df_temp['Затраты'] * rub_rate).round(0).astype(int)
+                        df_temp['Затраты с НДС (RUB)'] = (df_temp['Затраты с НДС'] * rub_rate).round(0).astype(int)
+                    else:
+                        df_temp['Затраты (RUB)'] = 0
+                        df_temp['Затраты с НДС (RUB)'] = 0
+                        
+                    cols_to_keep = ['date_start', 'campaign_name', 'Страна', 'impressions', 'inline_link_clicks', 'reach', 'Затраты', 'Затраты с НДС', 'Затраты (RUB)', 'Затраты с НДС (RUB)']
+                    for c in cols_to_keep:
+                        if c not in df_temp.columns:
+                             df_temp[c] = 0 if c not in ['date_start', 'campaign_name', 'Страна'] else None
+                             
+                    all_data.append(df_temp[cols_to_keep])
+        # ------------------------------------
+
+        if len(all_data) > 0:
 
         if len(all_data) > 0:
             df = pd.concat(all_data, ignore_index=True)
