@@ -380,40 +380,26 @@ else:
             # --- ДЕТАЛЬНАЯ ТАБЛИЦА ---
             st.subheader("Детальная таблица")
             
-            unique_countries = sorted(df_totals_filtered['Страна'].unique())
+            # Берем всё в одну таблицу, можем добавить колонку 'Страна' для наглядности
+            display_df = df_totals_filtered[['Страна', 'Название кампании', 'Показы', 'Клики', 'Охват', 'Затраты', 'Затраты с НДС', 'Затраты с НДС (RUB)']].copy()
             
-            for c_name in unique_countries:
-                if len(unique_countries) > 1:
-                    st.markdown(f"#### {c_name}")
-                
-                c_curr = merged_accounts.get(c_name, {}).get('currency', 'USD')
-                country_df = df_totals_filtered[df_totals_filtered['Страна'] == c_name]
-                
-                # В таблице только названия кампаний и их данные!
-                display_df = country_df[['Название кампании', 'Показы', 'Клики', 'Охват', 'Затраты', 'Затраты с НДС', 'Затраты с НДС (RUB)']].copy()
-                
-                display_df['Затраты'] = display_df['Затраты'].round(0).astype(int)
-                display_df['Затраты с НДС'] = display_df['Затраты с НДС'].round(0).astype(int)
-                
-                col_name_zatraty = f'Затраты ({c_curr})'
-                col_name_nds = f'Затраты с НДС ({c_curr})'
-                
-                display_df = display_df.rename(columns={
-                    'Затраты': col_name_zatraty,
-                    'Затраты с НДС': col_name_nds
-                })
-                
-                st.dataframe(
-                    display_df.style.format({
-                        col_name_zatraty: "{:,.0f}",
-                        col_name_nds: "{:,.0f}",
-                        'Затраты с НДС (RUB)': "{:,.0f}",
-                        'Показы': "{:,.0f}",
-                        'Клики': "{:,.0f}",
-                        'Охват': "{:,.0f}"
-                    }), 
-                    use_container_width=True
-                )
+            # Округляем локальные затраты
+            display_df['Затраты'] = display_df['Затраты'].round(0).astype(int)
+            display_df['Затраты с НДС'] = display_df['Затраты с НДС'].round(0).astype(int)
+            
+            # Выводим единую таблицу с форматированием (без переименования колонок)
+            st.dataframe(
+                display_df.style.format({
+                    'Затраты': "{:,.0f}",
+                    'Затраты с НДС': "{:,.0f}",
+                    'Затраты с НДС (RUB)': "{:,.0f}",
+                    'Показы': "{:,.0f}",
+                    'Клики': "{:,.0f}",
+                    'Охват': "{:,.0f}"
+                }), 
+                use_container_width=True
+            )
+            
         else:
             st.warning("Нет данных за выбранный период.")
 
