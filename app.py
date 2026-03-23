@@ -141,6 +141,36 @@ else:
         st.error(f"Ошибка загрузки списка аккаунтов: {e}")
         st.stop()
 
+# --- БЛОК ОБЪЕДИНЕНИЯ АККАУНТОВ ---
+        # Создаем новый словарь, где ключом будет СТРАНА, а значением - СПИСОК ID
+        merged_accounts = {}
+        
+        # Правила группировки (названия должны точно совпадать с тем, что в FB)
+        group_rules = {
+            "Indonesia": ["Indonesia", "Indonesia exec"],
+            "Philippines": ["PH exec", "PH usd", "Philippines"],
+            "Belarus": ["Belarus", "Belarus usd"]
+        }
+
+        # Проходим по всем аккаунтам, которые прислал FB
+        for acc_name, acc_info in accounts_dict.items():
+            target_group = None
+            # Проверяем, входит ли этот аккаунт в какую-то группу
+            for group_name, members in group_rules.items():
+                if acc_name in members:
+                    target_group = group_name
+                    break
+            
+            # Если группа найдена — добавляем ID в список этой группы
+            if target_group:
+                if target_group not in merged_accounts:
+                    merged_accounts[target_group] = {'ids': [], 'currency': acc_info['currency']}
+                merged_accounts[target_group]['ids'].append(acc_info['id'])
+            else:
+                # Если группы нет — оставляем аккаунт как одиночный пункт
+                merged_accounts[acc_name] = {'ids': [acc_info['id']], 'currency': acc_info['currency']}
+        # ----------------------------------
+
     # 2. Сайдбар: Настройки
     with st.sidebar:
         st.header("Настройки")
@@ -154,12 +184,15 @@ else:
             st.info("Выберите дату окончания в календаре")
             st.stop()
 
-        selected_acc_name = st.selectbox("Рекламный аккаунт:", sorted(list(accounts_dict.keys())))
-        acc_id = f"act_{accounts_dict[selected_acc_name]['id']}"
-        curr = accounts_dict[selected_acc_name]['currency']
-
-        current_raw_id = accounts_dict[selected_acc_name]['id']
-        vat_mult = VAT_MAP.get(current_raw_id, 1.0) # 1.0 если налога нет
+        # Заменяем старый selectbox на новый
+        selected_label = st.selectbox("Рекламный аккаунт:", sorted(list(merged_accounts.keys())))
+        
+        # Теперь у нас может быть список ID
+        list_of_ids = merged_accounts[selected_label]['ids']
+        curr = merged_accounts[selected_label]['currency']
+        
+        # Налог берем по первому ID в группе (обычно он одинаковый для страны)
+        vat_mult = VAT_MAP.get(list_of_ids[0], 1.0)
 
         # НОВЫЙ БЛОК: Выбор категории
         category_options = {
@@ -175,32 +208,33 @@ else:
     # 3. CSS: Красим фильтры в синий
     st.markdown("<style>span[data-baseweb='tag'] {background-color: #1f77b4 !important;}</style>", unsafe_allow_html=True)
 
-    # 4. Загрузка данных (Insights)
-    # 4. Загрузка данных (Insights) с обработкой пагинации (страниц)
     try:
-        insights_url = f"https://graph.facebook.com/v19.0/{acc_id}/insights"
-        params = {
-            "fields": "campaign_name,spend,impressions,inline_link_clicks,reach,date_start",
-            "time_range": f"{{'since':'{start_date}','until':'{end_date}'}}",
-            "level": "campaign",
-            "time_increment": 1, 
-            "limit": 500, # Просим сразу побольше строк на страницу
-            "access_token": TOKEN
-        }
-        
         all_data = []
-        response = requests.get(insights_url, params=params).json()
         
-        # Цикл, который "листает" страницы данных Facebook, пока они не кончатся
-        while True:
-            if "data" in response:
-                all_data.extend(response["data"])
+        # ЦИКЛ ПО ВСЕМ ID В ГРУППЕ
+        for single_id in list_of_ids:
+            temp_acc_id = f"act_{single_id}"
+            insights_url = f"https://graph.facebook.com/v19.0/{temp_acc_id}/insights"
+            params = {
+                "fields": "campaign_name,spend,impressions,inline_link_clicks,reach,date_start",
+                "time_range": f"{{'since':'{start_date}','until':'{end_date}'}}",
+                "level": "campaign",
+                "time_increment": 1, 
+                "limit": 500,
+                "access_token": TOKEN
+            }
             
-            # Если есть ссылка на следующую страницу — идем туда
-            if "paging" in response and "next" in response["paging"]:
-                response = requests.get(response["paging"]["next"]).json()
-            else:
-                break
+            response = requests.get(insights_url, params=params).json()
+            
+            # Собираем страницы данных для ЭТОГО аккаунта
+            while True:
+                if "data" in response:
+                    all_data.extend(response["data"])
+                if "paging" in response and "next" in response["paging"]:
+                    response = requests.get(response["paging"]["next"]).json()
+                else:
+                    break
+        
 
         if len(all_accounts_data) > 0:
             df = pd.DataFrame(all_data)
@@ -289,7 +323,7 @@ else:
             col_m = st.columns(6) # Теперь 6 колонок
             
             col_m[0].metric(f"Всего ({curr})", f"{df_totals_filtered['Затраты'].sum():,.0f}")
-            col_m[1].metric(f"С НДС ({curr})", f"{df_totals_filtered['Затраты с НДС'].sum():,.2f}")
+            col_m[1].metric(f"С НДС ({curr})", f"{df_totals_filtered['Затраты с НДС'].sum():,.0f}")
             col_m[2].metric("RUB + НДС", f"{df_totals_filtered['Затраты с НДС (RUB)'].sum():,.0f} ₽")
             
             col_m[3].metric("Показы", f"{df_totals_filtered['Показы'].sum():,}")
