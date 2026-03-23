@@ -384,7 +384,7 @@ else:
                     camps_for_plot = sorted(df_totals_filtered[df_totals_filtered['Страна'] == selected_plot_country]['Название кампании'].unique())
                     
                 camp_plot_opts = ["Все кампании (Сумма)"] + camps_for_plot
-                selected_plot_camp = st.selectbox("2. Кампания для графика (опционально):", options=camp_plot_opts)
+                selected_plot_camp = st.selectbox("2. Кампания для графика:", options=camp_plot_opts)
 
             # Определяем, какие данные берем для графика исходя из двух фильтров
             if selected_plot_country == "Все выбранные страны (Сумма)":
