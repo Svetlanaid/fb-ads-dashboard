@@ -85,16 +85,48 @@ def clean_campaign_name(name):
 if not TOKEN:
     st.error("Токен не найден! Проверьте файл .env")
 else:
-    # 1. Получение списка аккаунтов
+# 1. Получение списка аккаунтов (с пагинацией и отладкой)
     try:
-        accounts_url = f"https://graph.facebook.com/v19.0/me/adaccounts?fields=name,account_id,currency&access_token={TOKEN}"
-        acc_response = requests.get(accounts_url).json()
+        # Увеличим лимит до 100 на страницу для списка аккаунтов
+        accounts_url = f"https://graph.facebook.com/v19.0/me/adaccounts"
+        acc_params = {
+            "fields": "name,account_id,currency,account_status",
+            "limit": 100,
+            "access_token": TOKEN
+        }
         
-        if "data" not in acc_response or len(acc_response["data"]) == 0:
-            st.error("Аккаунты не найдены!")
+        all_accounts_data = []
+        acc_response = requests.get(accounts_url, params=acc_params).json()
+        
+        # Цикл для сбора ВСЕХ аккаунтов со всех страниц
+        while True:
+            if "data" in acc_response:
+                all_accounts_data.extend(acc_response["data"])
+            
+            if "paging" in acc_response and "next" in acc_response["paging"]:
+                acc_response = requests.get(acc_response["paging"]["next"]).json()
+            else:
+                break
+
+        if not all_accounts_data:
+            st.error("Facebook не вернул ни одного аккаунта. Проверьте права токена (ads_read).")
             st.stop()
             
-        accounts_dict = {acc['name']: {'id': acc['account_id'], 'currency': acc.get('currency', '$')} for acc in acc_response["data"]}
+        # Лог для отладки (видишь только ты в приложении)
+        with st.expander("🔍 Техническая информация (найдено аккаунтов)"):
+            st.write(f"Всего получено аккаунтов: {len(all_accounts_data)}")
+            # Выводим список ID для проверки, если нужно
+            # st.write([a.get('name') for a in all_accounts_data])
+
+        # Формируем словарь для выбора
+        accounts_dict = {}
+        for acc in all_accounts_data:
+            name = acc.get('name') or f"Unnamed ({acc['account_id']})"
+            accounts_dict[name] = {
+                'id': acc['account_id'], 
+                'currency': acc.get('currency', 'USD'),
+                'status': acc.get('account_status')
+            }
         
     except Exception as e:
         st.error(f"Ошибка загрузки списка аккаунтов: {e}")
