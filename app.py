@@ -289,9 +289,9 @@ else:
             # --- ВЫВОД МЕТРИК ---
             st.divider()
             col_m = st.columns(6)
-            col_m[0].metric(f"Всего ({curr})", f"{df_totals_filtered['Затраты'].sum():,.0f}")
-            col_m[1].metric(f"С НДС ({curr})", f"{df_totals_filtered['Затраты с НДС'].sum():,.0f}")
-            col_m[2].metric("RUB + НДС", f"{df_totals_filtered['Затраты с НДС (RUB)'].sum():,.0f} ₽")
+            col_m[0].metric(f"Затраты ({curr})", f"{df_totals_filtered['Затраты'].sum():,.0f}")
+            col_m[1].metric(f"Затраты с НДС ({curr})", f"{df_totals_filtered['Затраты с НДС'].sum():,.0f}")
+            col_m[2].metric("Затраты с НДС (RUB)", f"{df_totals_filtered['Затраты с НДС (RUB)'].sum():,.0f} ₽")
             col_m[3].metric("Показы", f"{df_totals_filtered['Показы'].sum():,}")
             col_m[4].metric("Клики", f"{df_totals_filtered['Клики'].sum():,}")
             col_m[5].metric("Охват", f"{df_totals_filtered['Охват'].sum():,}")
@@ -312,7 +312,7 @@ else:
             st.plotly_chart(fig, use_container_width=True)
 
             st.subheader("Детальная таблица")
-            st.dataframe(df_totals_filtered[['Название кампании', 'Показы', 'Клики', 'Охват', 'Затраты', 'Затраты с НДС (RUB)']], use_container_width=True)
+            st.dataframe(df_totals_filtered[['Название кампании', 'Показы', 'Клики', 'Охват', 'Затраты', 'Затраты с НДС', 'Затраты с НДС (RUB)']], use_container_width=True)
 
         else:
             st.warning("Нет данных за выбранный период.")
