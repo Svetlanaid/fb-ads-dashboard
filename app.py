@@ -206,10 +206,6 @@ else:
         category_substring = category_options[selected_category_label]
 
     st.markdown("<style>span[data-baseweb='tag'] {background-color: #1f77b4 !important;}</style>", unsafe_allow_html=True)
-
-    # 5. ЗАГРУЗКА И ОБРАБОТКА ДАННЫХ
-    try:
-        all_data = []
         
 # 5. ЗАГРУЗКА И ОБРАБОТКА ДАННЫХ
     try:
