@@ -363,36 +363,46 @@ else:
             col_m[4].metric("Клики", f"{df_totals_filtered['Клики'].sum():,}")
             col_m[5].metric("Охват", f"{df_totals_filtered['Охват'].sum():,}")
 
-            # --- ГРАФИК ---
+            ## --- ГРАФИК ---
             st.divider()
             st.subheader("📈 Динамика расходов")
             
+            # Делаем две колонки для фильтров графика
+            col_g1, col_g2 = st.columns(2)
+            
             unique_countries = sorted(df_totals_filtered['Страна'].unique())
-            current_camps = sorted(df_totals_filtered['Название кампании'].unique())
             
-            # Формируем умный список для выпадающего меню графика
-            camp_opts = ["Все выбранные данные (Сумма)"]
-            
-            # Добавляем страны (если их выбрано несколько)
-            if len(unique_countries) > 1:
-                camp_opts.extend([f"🌎 Страна: {c}" for c in unique_countries])
+            with col_g1:
+                country_plot_opts = ["Все выбранные страны (Сумма)"] + unique_countries
+                selected_plot_country = st.selectbox("1. Страна для графика:", options=country_plot_opts)
                 
-            # Добавляем сами кампании
-            camp_opts.extend([f"📢 Кампания: {c}" for c in current_camps])
-            
-            camp_to_plot = st.selectbox("Выберите срез для графика:", options=camp_opts)
+            with col_g2:
+                # Умный список: показываем кампании только для выбранной страны
+                if selected_plot_country == "Все выбранные страны (Сумма)":
+                    camps_for_plot = sorted(df_totals_filtered['Название кампании'].unique())
+                else:
+                    camps_for_plot = sorted(df_totals_filtered[df_totals_filtered['Страна'] == selected_plot_country]['Название кампании'].unique())
+                    
+                camp_plot_opts = ["Все кампании (Сумма)"] + camps_for_plot
+                selected_plot_camp = st.selectbox("2. Кампания для графика (опционально):", options=camp_plot_opts)
 
-            # Определяем, что именно мы фильтруем для отрисовки
-            if camp_to_plot == "Все выбранные данные (Сумма)":
-                d_data = df_daily_filtered.groupby('Дата').agg({'Затраты с НДС (RUB)': 'sum'}).reset_index()
-            elif camp_to_plot.startswith("🌎 Страна: "):
-                c_name = camp_to_plot.replace("🌎 Страна: ", "")
-                d_data = df_daily_filtered[df_daily_filtered['Страна'] == c_name].groupby('Дата').agg({'Затраты с НДС (RUB)': 'sum'}).reset_index()
+            # Определяем, какие данные берем для графика исходя из двух фильтров
+            if selected_plot_country == "Все выбранные страны (Сумма)":
+                if selected_plot_camp == "Все кампании (Сумма)":
+                    # Общая сумма вообще всего
+                    d_data = df_daily_filtered.groupby('Дата').agg({'Затраты с НДС (RUB)': 'sum'}).reset_index()
+                else:
+                    # Конкретная кампания (независимо от страны)
+                    d_data = df_daily_filtered[df_daily_filtered['Название кампании'] == selected_plot_camp].groupby('Дата').agg({'Затраты с НДС (RUB)': 'sum'}).reset_index()
             else:
-                c_name = camp_to_plot.replace("📢 Кампания: ", "")
-                d_data = df_daily_filtered[df_daily_filtered['Название кампании'] == c_name].groupby('Дата').agg({'Затраты с НДС (RUB)': 'sum'}).reset_index()
+                if selected_plot_camp == "Все кампании (Сумма)":
+                    # Сумма по конкретной стране
+                    d_data = df_daily_filtered[df_daily_filtered['Страна'] == selected_plot_country].groupby('Дата').agg({'Затраты с НДС (RUB)': 'sum'}).reset_index()
+                else:
+                    # Конкретная кампания внутри конкретной страны
+                    d_data = df_daily_filtered[(df_daily_filtered['Страна'] == selected_plot_country) & (df_daily_filtered['Название кампании'] == selected_plot_camp)].groupby('Дата').agg({'Затраты с НДС (RUB)': 'sum'}).reset_index()
 
-            # Рисуем график
+            # Рисуем сам график
             fig = px.line(d_data.sort_values('Дата'), x='Дата', y='Затраты с НДС (RUB)', markers=True, line_shape='spline')
             st.plotly_chart(fig, use_container_width=True)
 
