@@ -85,6 +85,19 @@ def clean_campaign_name(name):
 if not TOKEN:
     st.error("Токен не найден! Проверьте файл .env")
 else:
+    # --- ВСТАВИТЬ СЮДА (начало блока else) ---
+    VAT_MAP = {
+        "509917460493340": 1.11,      # Indonesia AR
+        "817547549239841": 1.11,      # TH
+        "1591493017715668": 1.11,     # Indonesia
+        "257290219582370": 1.11,      # Indonesia exec
+        "398026798982273": 1.08,      # Malaysia usd
+        "2727239577416075": 1.07,     # Thailand
+        "2295720397582070": 1.18,     # Tanzania
+        "830039013207696": 1.15,      # South Africa ZA
+        "24948463558072461": 1 / (1 - 0.029 - 0.0925), # Brasil
+    }
+else:
 # 1. Получение списка АКТИВНЫХ аккаунтов (с 01.01.2026)
     try:
         cutoff_date = "2026-01-01"
@@ -146,6 +159,9 @@ else:
         acc_id = f"act_{accounts_dict[selected_acc_name]['id']}"
         curr = accounts_dict[selected_acc_name]['currency']
 
+        current_raw_id = accounts_dict[selected_acc_name]['id']
+        vat_mult = VAT_MAP.get(current_raw_id, 1.0) # 1.0 если налога нет
+
         # НОВЫЙ БЛОК: Выбор категории
         category_options = {
             "Все": "",
@@ -202,8 +218,29 @@ else:
             # ------------------------------------------
             # ... (остальной код подготовки DF остается прежним)
             df['Дата'] = pd.to_datetime(df['date_start'])
-            df['Затраты'] = df['spend'].astype(float)
+            df['Затраты с НДС'] = df['Затраты'] * vat_mult
+            
+            # Работа с курсом (обнови этот блок)
+            rates = get_rates(curr)
+            rub_rate = rates.get("RUB") if rates else None
+            
+            # Обычные рубли (без НДС)
+            df['Затраты (RUB)'] = (df['Затраты'] * rub_rate).round(0).astype(int) if rub_rate else 0
+            # Рубли С НДС
+            df['Затраты с НДС (RUB)'] = (df['Затраты с НДС'] * rub_rate).round(0).astype(int) if rub_rate else 0
             df['Название кампании'] = df['campaign_name'].apply(clean_campaign_name)
+
+            # --- БЛОК ОБЪЕДИНЕНИЯ СТРАН ---
+            mapping = {
+                "Indonesia exec": "Indonesia",
+                "PH exec": "Philippines",
+                "PH usd": "Philippines",
+                "Belarus usd": "Belarus"
+                # Если появятся новые, просто добавляй их сюда через запятую
+            }
+            # Заменяем старые названия на новые (объединенные)
+            df['Название кампании'] = df['Название кампании'].replace(mapping)
+            # ------------------------------
             
             df = df.rename(columns={'impressions': 'Показы', 'inline_link_clicks': 'Клики', 'reach': 'Охват'})
             df['Показы'] = df['Показы'].astype(int)
@@ -217,7 +254,13 @@ else:
 
             # Группировка для итоговой таблицы
             df_totals = df.groupby('Название кампании').agg({
-                'Затраты': 'sum', 'Затраты (RUB)': 'sum', 'Показы': 'sum', 'Клики': 'sum', 'Охват': 'sum'
+                'Затраты': 'sum', 
+                'Затраты с НДС': 'sum', # Добавили
+                'Затраты (RUB)': 'sum', 
+                'Затраты с НДС (RUB)': 'sum', # Добавили
+                'Показы': 'sum', 
+                'Клики': 'sum', 
+                'Охват': 'sum'
             }).reset_index()
 
             # Фильтр кампаний в сайдбаре
@@ -250,12 +293,15 @@ else:
 
             # --- ВЫВОД ДАННЫХ ---
             st.divider()
-            col_m = st.columns(5)
+            col_m = st.columns(6) # Теперь 6 колонок
+            
             col_m[0].metric(f"Всего ({curr})", f"{df_totals_filtered['Затраты'].sum():,.0f}")
-            col_m[1].metric("Всего (RUB)", f"{df_totals_filtered['Затраты (RUB)'].sum():,.0f} ₽")
-            col_m[2].metric("Показы", f"{df_totals_filtered['Показы'].sum():,}")
-            col_m[3].metric("Клики", f"{df_totals_filtered['Клики'].sum():,}")
-            col_m[4].metric("Охват", f"{df_totals_filtered['Охват'].sum():,}")
+            col_m[1].metric(f"С НДС ({curr})", f"{df_totals_filtered['Затраты с НДС'].sum():,.2f}")
+            col_m[2].metric("RUB + НДС", f"{df_totals_filtered['Затраты с НДС (RUB)'].sum():,.0f} ₽")
+            
+            col_m[3].metric("Показы", f"{df_totals_filtered['Показы'].sum():,}")
+            col_m[4].metric("Клики", f"{df_totals_filtered['Клики'].sum():,}")
+            col_m[5].metric("Охват", f"{df_totals_filtered['Охват'].sum():,}")
 
             # --- ГРАФИК ДИНАМИКИ (Вместо столбчатого) ---
             st.divider()
