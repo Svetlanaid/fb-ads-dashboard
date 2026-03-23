@@ -207,65 +207,63 @@ else:
     try:
         all_data = []
         
-        # --- ИЗМЕНЕНИЕ: Идем по выбранным странам, чтобы запомнить, к какой из них относятся данные ---
-        for label in selected_labels:
-            for single_id in merged_accounts[label]['ids']:
-                current_vat_mult = VAT_MAP.get(single_id, 1.0)
+        for single_id in list_of_ids:
+            current_vat_mult = VAT_MAP.get(single_id, 1.0)
+            
+            temp_acc_id = f"act_{single_id}"
+            insights_url = f"https://graph.facebook.com/v19.0/{temp_acc_id}/insights"
+            params = {
+                "fields": "account_currency,campaign_name,spend,impressions,inline_link_clicks,reach,date_start",
+                "time_range": f"{{'since':'{start_date}','until':'{end_date}'}}",
+                "level": "campaign",
+                "time_increment": 1, 
+                "limit": 500,
+                "access_token": TOKEN
+            }
+            
+            response = requests.get(insights_url, params=params).json()
+            
+            temp_data = []
+            while True:
+                if "data" in response:
+                    temp_data.extend(response["data"])
+                if "paging" in response and "next" in response["paging"]:
+                    response = requests.get(response["paging"]["next"]).json()
+                else:
+                    break
+                    
+            if temp_data:
+                df_temp = pd.DataFrame(temp_data)
                 
-                temp_acc_id = f"act_{single_id}"
-                insights_url = f"https://graph.facebook.com/v19.0/{temp_acc_id}/insights"
-                params = {
-                    "fields": "account_currency,campaign_name,spend,impressions,inline_link_clicks,reach,date_start",
-                    "time_range": f"{{'since':'{start_date}','until':'{end_date}'}}",
-                    "level": "campaign",
-                    "time_increment": 1, 
-                    "limit": 500,
-                    "access_token": TOKEN
-                }
+                # Добавляем привязку к Стране из верхнего меню
+                df_temp['Страна'] = label 
                 
-                response = requests.get(insights_url, params=params).json()
+                df_temp['Затраты'] = df_temp['spend'].astype(float)
+                df_temp['Затраты с НДС'] = df_temp['Затраты'] * current_vat_mult
                 
-                temp_data = []
-                while True:
-                    if "data" in response:
-                        temp_data.extend(response["data"])
-                    if "paging" in response and "next" in response["paging"]:
-                        response = requests.get(response["paging"]["next"]).json()
-                    else:
-                        break
-                        
-                if temp_data:
-                    df_temp = pd.DataFrame(temp_data)
+                acc_curr = df_temp['account_currency'].iloc[0] if 'account_currency' in df_temp.columns else "USD"
+                
+                rates = get_rates(acc_curr)
+                rub_rate = rates.get("RUB") if rates else None
+                
+                if rub_rate:
+                    df_temp['Затраты (RUB)'] = (df_temp['Затраты'] * rub_rate).round(0).astype(int)
+                    df_temp['Затраты с НДС (RUB)'] = (df_temp['Затраты с НДС'] * rub_rate).round(0).astype(int)
+                else:
+                    df_temp['Затраты (RUB)'] = 0
+                    df_temp['Затраты с НДС (RUB)'] = 0
                     
-                    # Сохраняем название страны (ID, MY, Indonesia) в отдельную колонку!
-                    df_temp['Страна'] = label 
-                    
-                    df_temp['Затраты'] = df_temp['spend'].astype(float)
-                    df_temp['Затраты с НДС'] = df_temp['Затраты'] * current_vat_mult
-                    
-                    acc_curr = df_temp['account_currency'].iloc[0] if 'account_currency' in df_temp.columns else "USD"
-                    
-                    rates = get_rates(acc_curr)
-                    rub_rate = rates.get("RUB") if rates else None
-                    
-                    if rub_rate:
-                        df_temp['Затраты (RUB)'] = (df_temp['Затраты'] * rub_rate).round(0).astype(int)
-                        df_temp['Затраты с НДС (RUB)'] = (df_temp['Затраты с НДС'] * rub_rate).round(0).astype(int)
-                    else:
-                        df_temp['Затраты (RUB)'] = 0
-                        df_temp['Затраты с НДС (RUB)'] = 0
-                        
-                    cols_to_keep = ['date_start', 'campaign_name', 'Страна', 'impressions', 'inline_link_clicks', 'reach', 'Затраты', 'Затраты с НДС', 'Затраты (RUB)', 'Затраты с НДС (RUB)']
-                    for c in cols_to_keep:
-                        if c not in df_temp.columns:
-                             df_temp[c] = 0 if c not in ['date_start', 'campaign_name', 'Страна'] else None
-                             
-                    all_data.append(df_temp[cols_to_keep])
+                cols_to_keep = ['date_start', 'campaign_name', 'Страна', 'impressions', 'inline_link_clicks', 'reach', 'Затраты', 'Затраты с НДС', 'Затраты (RUB)', 'Затраты с НДС (RUB)']
+                for c in cols_to_keep:
+                    if c not in df_temp.columns:
+                         df_temp[c] = 0 if c not in ['date_start', 'campaign_name', 'Страна'] else None
+                         
+                all_data.append(df_temp[cols_to_keep])
 
         if len(all_data) > 0:
             df = pd.concat(all_data, ignore_index=True)
             
-            # 1. Сначала фильтруем по категории (ищем "exec", "smm" в оригинальных названиях)
+            # 1. Фильтрация по категории
             if selected_category_label != "Все":
                 df = df[df['campaign_name'].str.contains(category_substring, case=False, na=False)]
             
@@ -273,18 +271,15 @@ else:
                 st.warning(f"В категории '{selected_category_label}' нет данных")
                 st.stop()
 
-            # 2. Форматирование дат
+            # 2. Форматирование и чистка названий (БЕРЕМ ТОЛЬКО КАМПАНИИ)
             df['Дата'] = pd.to_datetime(df['date_start'])
-            
-            # 3. МАГИЯ ЗДЕСЬ: Переименовываем все кампании в название Страны!
-            # Теперь весь дашборд будет группироваться по странам, а не по отдельным кампаниям.
-            df['Название кампании'] = df['Страна'] 
+            df['Название кампании'] = df['campaign_name'].apply(clean_campaign_name)
 
             df = df.rename(columns={'impressions': 'Показы', 'inline_link_clicks': 'Клики', 'reach': 'Охват'})
             for col in ['Показы', 'Клики', 'Охват']:
                 df[col] = df[col].astype(int)
 
-            # Группируем данные в df_totals по Стране И Кампании
+            # 3. Группируем по ДВУМ колонкам, чтобы сохранить связку "Страна - Кампания"
             df_totals = df.groupby(['Страна', 'Название кампании']).agg({
                 'Затраты': 'sum',
                 'Затраты с НДС': 'sum',
@@ -295,12 +290,13 @@ else:
                 'Охват': 'sum'
             }).reset_index()
 
-            # Вот она, наша переменная all_campaigns!
+            # 4. Вытаскиваем ИМЕНА КАМПАНИЙ для нижнего фильтра
             all_campaigns = sorted(df_totals['Название кампании'].unique().tolist())
             
+            # ДОРИСОВЫВАЕМ САЙДБАР
             with st.sidebar:
                 st.divider()
-                selected_campaigns = st.multiselect("3. Фильтр:", options=all_campaigns, default=all_campaigns)
+                selected_campaigns = st.multiselect("3. Фильтр по кампаниям:", options=all_campaigns, default=all_campaigns)
                 
                 st.divider()
                 if curr == "MIXED":
@@ -308,10 +304,8 @@ else:
                 elif curr == "RUB":
                     st.info("Валюта: RUB")
                 else:
-                    # Специально для сайдбара запрашиваем актуальный курс
                     sidebar_rates = get_rates(curr)
                     sidebar_rub_rate = sidebar_rates.get("RUB") if sidebar_rates else None
-                    
                     if sidebar_rub_rate:
                         st.success(f"Курс: 1 {curr} = {sidebar_rub_rate:.4f} RUB")
                     else:
@@ -323,6 +317,7 @@ else:
                     st.session_state["authenticated"] = False
                     st.rerun()
 
+            # Применяем фильтр КАМПАНИЙ
             df_totals_filtered = df_totals[df_totals['Название кампании'].isin(selected_campaigns)]
             df_daily_filtered = df[df['Название кампании'].isin(selected_campaigns)]
 
@@ -330,33 +325,24 @@ else:
                 st.warning("Выберите кампанию")
                 st.stop()
 
-            if df_totals_filtered.empty:
-                st.warning("Выберите кампанию")
-                st.stop()
-
-            # --- ВЫВОД МЕТРИК ---
             # --- ВЫВОД МЕТРИК ---
             st.divider()
             col_m = st.columns(6)
             
             if curr == "MIXED":
-                # Группируем суммы по СТРАНАМ
+                # В шапке сворачиваем до СТРАН
                 grouped_df = df_totals_filtered.groupby('Страна')[['Затраты', 'Затраты с НДС']].sum().reset_index()
                 
                 spend_lines = []
                 nds_lines = []
-                
                 for _, row in grouped_df.iterrows():
-                    c_name = row['Страна'] # Берем имя страны!
-                    # Находим валюту
+                    c_name = row['Страна']
                     c_curr = merged_accounts.get(c_name, {}).get('currency', '')
                     curr_text = f" ({c_curr})" if c_curr else ""
                     
-                    # Формируем строчки списка
                     spend_lines.append(f"{c_name}{curr_text} — <b>{row['Затраты']:,.0f}</b>")
                     nds_lines.append(f"{c_name}{curr_text} — <b>{row['Затраты с НДС']:,.0f}</b>")
                 
-                # Склеиваем строки
                 spend_html = "<br>".join(spend_lines)
                 nds_html = "<br>".join(nds_lines)
                 
@@ -371,7 +357,7 @@ else:
             col_m[4].metric("Клики", f"{df_totals_filtered['Клики'].sum():,}")
             col_m[5].metric("Охват", f"{df_totals_filtered['Охват'].sum():,}")
 
-            # Графики и таблица
+            # --- ГРАФИК ---
             st.divider()
             st.subheader("📈 Динамика расходов")
             current_camps = list(df_totals_filtered['Название кампании'].unique())
@@ -386,23 +372,19 @@ else:
             fig = px.line(d_data.sort_values('Дата'), x='Дата', y='Затраты с НДС (RUB)', markers=True, line_shape='spline')
             st.plotly_chart(fig, use_container_width=True)
 
+            # --- ДЕТАЛЬНАЯ ТАБЛИЦА ---
             st.subheader("Детальная таблица")
             
-            # Получаем список уникальных стран, которые остались после фильтрации
             unique_countries = sorted(df_totals_filtered['Страна'].unique())
             
             for c_name in unique_countries:
-                # Если выбрано несколько стран, добавляем заголовок перед таблицей
                 if len(unique_countries) > 1:
                     st.markdown(f"#### {c_name}")
                 
-                # Достаем валюту конкретно для этой страны
                 c_curr = merged_accounts.get(c_name, {}).get('currency', 'USD')
-                
-                # Фильтруем кампании только для текущей страны
                 country_df = df_totals_filtered[df_totals_filtered['Страна'] == c_name]
                 
-                # Подготавливаем таблицу к выводу
+                # В таблице только названия кампаний и их данные!
                 display_df = country_df[['Название кампании', 'Показы', 'Клики', 'Охват', 'Затраты', 'Затраты с НДС', 'Затраты с НДС (RUB)']].copy()
                 
                 display_df['Затраты'] = display_df['Затраты'].round(0).astype(int)
@@ -416,7 +398,6 @@ else:
                     'Затраты с НДС': col_name_nds
                 })
                 
-                # Выводим таблицу
                 st.dataframe(
                     display_df.style.format({
                         col_name_zatraty: "{:,.0f}",
