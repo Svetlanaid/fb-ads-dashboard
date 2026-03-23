@@ -272,18 +272,45 @@ else:
                 st.warning(f"В категории '{selected_category_label}' нет данных")
                 st.stop()
 
-            # 2. Форматирование дат и чистка имен
+            ## 2. Форматирование дат и чистка имен
             df['Дата'] = pd.to_datetime(df['date_start'])
             df['Название кампании'] = df['campaign_name'].apply(clean_campaign_name)
+            
+            mapping = {
+                "Indonesia exec": "Indonesia",
+                "PH exec": "Philippines",
+                "PH usd": "Philippines",
+                "Belarus usd": "Belarus"
+            }
+            df['Название кампании'] = df['Название кампании'].replace(mapping)
+
+            df = df.rename(columns={'impressions': 'Показы', 'inline_link_clicks': 'Клики', 'reach': 'Охват'})
+            for col in ['Показы', 'Клики', 'Охват']:
+                df[col] = df[col].astype(int)
+
+            # Группируем данные в df_totals ПЕРЕД тем, как брать оттуда список кампаний
+            df_totals = df.groupby('Название кампании').agg({
+                'Затраты': 'sum',
+                'Затраты с НДС': 'sum',
+                'Затраты (RUB)': 'sum',
+                'Затраты с НДС (RUB)': 'sum',
+                'Показы': 'sum',
+                'Клики': 'sum',
+                'Охват': 'sum'
+            }).reset_index()
+
+            # Вот она, наша переменная all_campaigns!
+            all_campaigns = sorted(df_totals['Название кампании'].unique().tolist())
+            
             with st.sidebar:
                 st.divider()
                 selected_campaigns = st.multiselect("3. Фильтр:", options=all_campaigns, default=all_campaigns)
                 
                 st.divider()
-                if curr == "RUB":
-                    st.info("Валюта: RUB")
-                elif rub_rate:
-                    st.success(f"Курс: 1 {curr} = {rub_rate:.4f} RUB")
+                if curr == "MIXED":
+                    st.info("Выбраны разные валюты")
+                else:
+                    st.info(f"Валюта: {curr}")
                 
                 if st.button('🔄 Обновить'): st.rerun()
                 st.divider()
@@ -293,6 +320,10 @@ else:
 
             df_totals_filtered = df_totals[df_totals['Название кампании'].isin(selected_campaigns)]
             df_daily_filtered = df[df['Название кампании'].isin(selected_campaigns)]
+
+            if df_totals_filtered.empty:
+                st.warning("Выберите кампанию")
+                st.stop()
 
             if df_totals_filtered.empty:
                 st.warning("Выберите кампанию")
