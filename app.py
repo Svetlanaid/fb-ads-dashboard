@@ -251,8 +251,8 @@ else:
                     rub_rate = rates.get("RUB") if rates else None
                     
                     if rub_rate:
-                        df_temp['Затраты (RUB)'] = (df_temp['Затраты'] * rub_rate).round(0).astype(int)
-                        df_temp['Затраты с НДС (RUB)'] = (df_temp['Затраты с НДС'] * rub_rate).round(0).astype(int)
+                        df_temp['Затраты (RUB)'] = df_temp['Затраты'] * rub_rate
+                        df_temp['Затраты с НДС (RUB)'] = df_temp['Затраты с НДС'] * rub_rate
                     else:
                         df_temp['Затраты (RUB)'] = 0
                         df_temp['Затраты с НДС (RUB)'] = 0
@@ -346,8 +346,9 @@ else:
                     c_curr = merged_accounts.get(c_name, {}).get('currency', '')
                     curr_text = f" ({c_curr})" if c_curr else ""
                     
-                    spend_lines.append(f"{c_name}{curr_text} — <b>{row['Затраты']:,.0f}</b>")
-                    nds_lines.append(f"{c_name}{curr_text} — <b>{row['Затраты с НДС']:,.0f}</b>")
+                    # Заменили .0f на .2f
+                    spend_lines.append(f"{c_name}{curr_text} — <b>{row['Затраты']:,.2f}</b>")
+                    nds_lines.append(f"{c_name}{curr_text} — <b>{row['Затраты с НДС']:,.2f}</b>")
                 
                 spend_html = "<br>".join(spend_lines)
                 nds_html = "<br>".join(nds_lines)
@@ -355,10 +356,12 @@ else:
                 col_m[0].markdown(f"<div style='font-size: 14px; color: gray; margin-bottom: 4px;'>Затраты (Лок.)</div><div style='font-size: 14px; line-height: 1.6;'>{spend_html}</div>", unsafe_allow_html=True)
                 col_m[1].markdown(f"<div style='font-size: 14px; color: gray; margin-bottom: 4px;'>С НДС (Лок.)</div><div style='font-size: 14px; line-height: 1.6;'>{nds_html}</div>", unsafe_allow_html=True)
             else:
-                col_m[0].metric(f"Затраты ({curr})", f"{df_totals_filtered['Затраты'].sum():,.0f}")
-                col_m[1].metric(f"Затраты с НДС ({curr})", f"{df_totals_filtered['Затраты с НДС'].sum():,.0f}")
+                # Заменили .0f на .2f
+                col_m[0].metric(f"Затраты ({curr})", f"{df_totals_filtered['Затраты'].sum():,.2f}")
+                col_m[1].metric(f"Затраты с НДС ({curr})", f"{df_totals_filtered['Затраты с НДС'].sum():,.2f}")
                 
-            col_m[2].metric("Затраты с НДС (RUB)", f"{df_totals_filtered['Затраты с НДС (RUB)'].sum():,.0f} ₽")
+            # Заменили .0f на .2f
+            col_m[2].metric("Затраты с НДС (RUB)", f"{df_totals_filtered['Затраты с НДС (RUB)'].sum():,.2f} ₽")
             col_m[3].metric("Показы", f"{df_totals_filtered['Показы'].sum():,}")
             col_m[4].metric("Клики", f"{df_totals_filtered['Клики'].sum():,}")
             col_m[5].metric("Охват", f"{df_totals_filtered['Охват'].sum():,}")
@@ -412,16 +415,12 @@ else:
             # Берем всё в одну таблицу, можем добавить колонку 'Страна' для наглядности
             display_df = df_totals_filtered[['Страна', 'Название кампании', 'Показы', 'Клики', 'Охват', 'Затраты', 'Затраты с НДС', 'Затраты с НДС (RUB)']].copy()
             
-            # Округляем локальные затраты
-            display_df['Затраты'] = display_df['Затраты'].round(0).astype(int)
-            display_df['Затраты с НДС'] = display_df['Затраты с НДС'].round(0).astype(int)
-            
-            # Выводим единую таблицу с форматированием (без переименования колонок)
+            # Выводим единую таблицу с форматированием (2 знака для денег, 0 для метрик)
             st.dataframe(
                 display_df.style.format({
-                    'Затраты': "{:,.0f}",
-                    'Затраты с НДС': "{:,.0f}",
-                    'Затраты с НДС (RUB)': "{:,.0f}",
+                    'Затраты': "{:,.2f}",
+                    'Затраты с НДС': "{:,.2f}",
+                    'Затраты с НДС (RUB)': "{:,.2f}",
                     'Показы': "{:,.0f}",
                     'Клики': "{:,.0f}",
                     'Охват': "{:,.0f}"
