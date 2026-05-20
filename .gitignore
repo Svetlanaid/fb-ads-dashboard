@@ -1,2 +1,6 @@
 .env
 venv/
+.json
+.streamlit/secrets.toml
+__pycache__/
+app.py
