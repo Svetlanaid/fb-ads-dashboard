@@ -147,24 +147,39 @@ def find_image_on_drive(creative_name):
         return None
     except:
         return None        
-# --- БЛОК АВТОРИЗАЦИИ (Берем данные из облака) ---
+from streamlit_cookies_manager import EncryptedCookieManager
+
+# --- БЛОК АВТОРИЗАЦИИ ---
 if "users" in st.secrets:
     USERS = st.secrets["users"]
 
+cookies = EncryptedCookieManager(
+    prefix="fb_dashboard_",
+    password=st.secrets.get("COOKIE_PASSWORD", "fallback_secret_key")
+)
+if not cookies.ready():
+    st.stop()
+
 if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
+    if cookies.get("authenticated") == "true":
+        st.session_state["authenticated"] = True
+    else:
+        st.session_state["authenticated"] = False
+                    cookies["authenticated"] = "false"
+                    cookies.save()
+                    st.rerun()
 
 def login_screen():
     st.markdown("<h2 style='text-align: center;'>Вход в систему</h2>", unsafe_allow_html=True)
     col_l, col_m, col_r = st.columns([1, 2, 1])
     with col_m:
-        # Добавили key, чтобы ввод не «слетал»
         user = st.text_input("Логин", key="username")
         password = st.text_input("Пароль", type="password", key="password")
         if st.button("Войти", use_container_width=True):
-            # Переводим всё в строку str(), чтобы сравнение было точным
             if user in USERS and str(USERS[user]) == str(password):
                 st.session_state["authenticated"] = True
+                cookies["authenticated"] = "true"
+                cookies.save()
                 st.rerun()
             else:
                 st.error("Неверный логин или пароль")
@@ -235,7 +250,9 @@ if main_tab == "Клиенты":
             st.divider()
             if st.button("🚪 Выйти", use_container_width=True, key="clnt_logout_pre"):
                 st.session_state["authenticated"] = False
-                st.rerun()
+                    cookies["authenticated"] = "false"
+                    cookies.save()
+                    st.rerun()
 
     if uploaded_file:
         df_clients = pd.read_excel(uploaded_file)
@@ -356,8 +373,9 @@ if main_tab == "Клиенты":
             st.divider()
             if st.button("🚪 Выйти", use_container_width=True, key="clnt_logout"):
                 st.session_state["authenticated"] = False
-                st.query_params.clear()
-                st.rerun()
+                    cookies["authenticated"] = "false"
+                    cookies.save()
+                    st.rerun()
 # Сбрасываем галерею если сменились фильтры
         filter_key_c = f"{sorted(sel_camps_c)}_{sorted(sel_adsets_c)}"
         if st.session_state.get('clnt_filter_key') != filter_key_c:
@@ -1258,7 +1276,8 @@ else:
                         st.divider()
                         if st.button("🚪 Выйти", use_container_width=True, key="drv_logout_pre"):
                             st.session_state["authenticated"] = False
-                            st.query_params.clear()
+                            cookies["authenticated"] = "false"
+                            cookies.save()
                             st.rerun()
                     st.stop()
 
@@ -1898,6 +1917,8 @@ else:
                 st.divider()
                 if st.button("🚪 Выйти"):
                     st.session_state["authenticated"] = False
+                    cookies["authenticated"] = "false"
+                    cookies.save()
                     st.rerun()
 
             # Применяем фильтр КАМПАНИЙ
