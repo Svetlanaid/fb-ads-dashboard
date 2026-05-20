@@ -165,9 +165,6 @@ if "authenticated" not in st.session_state:
         st.session_state["authenticated"] = True
     else:
         st.session_state["authenticated"] = False
-                    cookies["authenticated"] = "false"
-                    cookies.save()
-                    st.rerun()
 
 def login_screen():
     st.markdown("<h2 style='text-align: center;'>Вход в систему</h2>", unsafe_allow_html=True)
@@ -250,9 +247,9 @@ if main_tab == "Клиенты":
             st.divider()
             if st.button("🚪 Выйти", use_container_width=True, key="clnt_logout_pre"):
                 st.session_state["authenticated"] = False
-                    cookies["authenticated"] = "false"
-                    cookies.save()
-                    st.rerun()
+                cookies["authenticated"] = "false"
+                cookies.save()
+                st.rerun()
 
     if uploaded_file:
         df_clients = pd.read_excel(uploaded_file)
@@ -373,9 +370,9 @@ if main_tab == "Клиенты":
             st.divider()
             if st.button("🚪 Выйти", use_container_width=True, key="clnt_logout"):
                 st.session_state["authenticated"] = False
-                    cookies["authenticated"] = "false"
-                    cookies.save()
-                    st.rerun()
+                cookies["authenticated"] = "false"
+                cookies.save()
+                st.rerun()
 # Сбрасываем галерею если сменились фильтры
         filter_key_c = f"{sorted(sel_camps_c)}_{sorted(sel_adsets_c)}"
         if st.session_state.get('clnt_filter_key') != filter_key_c:
@@ -1325,7 +1322,8 @@ else:
             st.divider()
             if st.button("🚪 Выйти", use_container_width=True, key="drv_logout"):
                 st.session_state["authenticated"] = False
-                st.query_params.clear()
+                cookies["authenticated"] = "false"
+                cookies.save()
                 st.rerun()
 
         # Применяем фильтрацию по очищенному столбцу
