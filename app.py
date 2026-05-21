@@ -12,6 +12,11 @@ from googleapiclient.discovery import build
 # 1. Загрузка настроек (Сначала из Secrets, если нет — из .env)
 load_dotenv()
 TOKEN = st.secrets.get("FB_ACCESS_TOKEN") or os.getenv("FB_ACCESS_TOKEN")
+from supabase import create_client
+supabase = create_client(
+    st.secrets["SUPABASE_URL"],
+    st.secrets["SUPABASE_KEY"]
+)
 # --- GOOGLE DRIVE ---
 GDRIVE_COUNTRIES_ROOT_ID = "1r3dDnlhH3_2t2_5SmHsF_5W57UAwhRlH"
 
@@ -824,7 +829,41 @@ if app_mode == "🖼️ Библиотека креативов":
 else:
     st.title("📈 Аналитика рекламных кабинетов")
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+@st.cache_data(ttl=1800)
+def load_insights_from_db(labels, start_date, end_date):
+    """Читает статистику кампаний из Supabase"""
+    try:
+        resp = supabase.table("fb_insights_daily")\
+            .select("*")\
+            .in_("country_label", list(labels))\
+            .gte("date_start", str(start_date))\
+            .lte("date_start", str(end_date))\
+            .execute()
+        if not resp.data:
+            return None
+        df = pd.DataFrame(resp.data)
+        df['date_start'] = pd.to_datetime(df['date_start'])
+        return df
+    except Exception as e:
+        st.error(f"Ошибка загрузки статистики из базы: {e}")
+        return None
 
+@st.cache_data(ttl=1800)
+def load_creatives_from_db(labels, start_date, end_date):
+    """Читает данные по макетам из Supabase"""
+    try:
+        resp = supabase.table("fb_ads_creatives")\
+            .select("*")\
+            .in_("country_label", list(labels))\
+            .gte("date_start", str(start_date))\
+            .lte("date_start", str(end_date))\
+            .execute()
+        if not resp.data:
+            return None
+        return pd.DataFrame(resp.data)
+    except Exception as e:
+        st.error(f"Ошибка загрузки макетов из базы: {e}")
+        return None
 # Функция получения курса валют
 @st.cache_data(ttl=3600)
 def get_rates(base_currency):
@@ -1152,106 +1191,49 @@ else:
         # --- ТЕПЕРЬ ЗАГРУЗКА ИДЕТ ТОЛЬКО ПО КНОПКЕ ---
         if not st.session_state['gallery_loaded']:
             with st.sidebar:
-                if st.button("🚀 Загрузить данные из Facebook", use_container_width=True):
-                    with st.spinner("Загрузка данных из Facebook..."):
-                        try:
-                            ads_data = []
-                            for label in selected_labels:
-                                for single_id in merged_accounts[label]['ids']:
-                                    current_vat_mult = VAT_MAP.get(single_id, 1.0)
-                                    
-                                    acc_info_curr = merged_accounts[label]['currency']
-                                    with st.empty():
-                                        rates = get_rates(acc_info_curr)
-                                    rub_rate = rates.get("RUB", 1.0) if rates else 1.0
-                                    
-                                    url = f"https://graph.facebook.com/v19.0/act_{single_id}/insights"
-                                    params = {
-                                        "fields": "campaign_name,adset_name,ad_name,spend,impressions,inline_link_clicks,actions,ad_id",
-                                        "time_range": f"{{'since':'{start_date}','until':'{end_date}'}}",
-                                        "level": "ad",
-                                        "limit": 200,
-                                        "access_token": TOKEN
-                                    }
-                                    res = requests.get(url, params=params, timeout=120).json()
-                                    
-                                    while True:
-                                        if "data" in res:
-                                            for row in res["data"]:
-                                                if float(row.get("spend", 0)) > 0:
-                                                    row['Страна'] = label
-                                                    row['НДС_множитель'] = current_vat_mult
-                                                    row['rub_rate'] = rub_rate
-                                                    ads_data.append(row)
-                                        if "paging" in res and "next" in res["paging"]:
-                                            res = requests.get(res["paging"]["next"], timeout=120).json()
-                                        else:
-                                            break
+                if st.button("🚀 Загрузить данные из базы", use_container_width=True):
+                    with st.spinner("Загрузка данных..."):
+                        from collector import ACCOUNT_LABELS
+                        selected_db_labels = set()
+                        for label in selected_labels:
+                            for acc_id in merged_accounts[label]['ids']:
+                                db_label = ACCOUNT_LABELS.get(acc_id)
+                                if db_label:
+                                    selected_db_labels.add(db_label)
 
-                            if ads_data:
-                                df_raw = pd.DataFrame(ads_data)
-                                df_raw['Затраты'] = df_raw['spend'].astype(float)
-                                df_raw['Показы'] = df_raw['impressions'].astype(int)
-                                df_raw['Клики'] = df_raw['inline_link_clicks'].astype(int)
+                        df_raw = load_creatives_from_db(selected_db_labels, start_date, end_date)
 
-                                def parse_leads(x):
-                                    if isinstance(x, list):
-                                        for action in x:
-                                            if action.get('action_type') == 'lead':
-                                                return int(action.get('value', 0))
-                                    return 0
+                        if df_raw is not None and not df_raw.empty:
+                            def normalize_adset(name):
+                                if not name: return ''
+                                name = str(name).lower().strip()
+                                if 'allcity' in name: return 'allcity'
+                                name = re.sub(r'\d{1,2}[./-]\d{1,2}', '', name)
+                                name = re.sub(r'\d+', '', name)
+                                name = re.sub(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b', '', name)
+                                name = re.sub(r'\b(copy|trg|target)\b', '', name)
+                                name = re.sub(r'\+?\s*truck', '', name)
+                                name = re.sub(r'[-–—_.]', ' ', name)
+                                return re.sub(r'\s{2,}', ' ', name).strip()
 
-                                df_raw['Результаты'] = df_raw['actions'].apply(parse_leads) if 'actions' in df_raw.columns else 0
-                                df_raw['Затраты (RUB)'] = df_raw['Затраты'] * df_raw['НДС_множитель'] * df_raw['rub_rate']
-                                
-                                # Функции очистки (предполагается, что они объявлены выше)
-                                def normalize_adset(name):
-                                    if not name: return ''
-                                    name = str(name).lower().strip()
-                                    if 'allcity' in name: return 'allcity'
-                                    name = re.sub(r'\d{1,2}[./-]\d{1,2}', '', name)
-                                    name = re.sub(r'\d+', '', name)
-                                    name = re.sub(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b', '', name)
-                                    name = re.sub(r'\b(copy|trg|target)\b', '', name)
-                                    name = re.sub(r'\+?\s*truck', '', name)
-                                    name = re.sub(r'[-–—_.]', ' ', name)
-                                    return re.sub(r'\s{2,}', ' ', name).strip()
+                            df_raw = df_raw.rename(columns={
+                                'country_label': 'Страна',
+                                'spend_rub':     'Затраты (RUB)',
+                                'leads':         'Результаты',
+                            })
+                            df_raw['Затраты'] = df_raw['spend'].astype(float)
+                            df_raw['Показы']  = df_raw['impressions'].astype(int)
+                            df_raw['Клики']   = df_raw['clicks'].astype(int)
+                            df_raw['adset_norm'] = df_raw['adset_name'].apply(normalize_adset)
+                            df_raw['Макет'] = df_raw['ad_name'].apply(clean_creative_name)
+                            df_raw['Название группы'] = df_raw['adset_name'].apply(clean_campaign_name)
+                            df_raw['campaign_name_clean'] = df_raw['campaign_name'].apply(clean_campaign_name)
 
-                                df_raw['adset_norm'] = df_raw['adset_name'].apply(normalize_adset)
-
-                                def get_creative_name(row):
-                                    ad_name = str(row.get('ad_name', '') or '').strip()
-                                    if 'many' in ad_name.lower():
-                                        ad_id = row.get('ad_id', '')
-                                        if ad_id:
-                                            try:
-                                                cr_res = requests.get(
-                                                    f"https://graph.facebook.com/v19.0/{ad_id}",
-                                                    params={"fields": "creative{name}", "access_token": TOKEN},
-                                                    timeout=10
-                                                ).json()
-                                                cr_name = cr_res.get('creative', {}).get('name', '')
-                                                if cr_name:
-                                                    return clean_creative_name(cr_name)
-                                            except:
-                                                pass
-                                    return clean_creative_name(ad_name)
-
-                                df_raw['Макет'] = df_raw.apply(get_creative_name, axis=1)
-                                df_raw['Название группы'] = df_raw['adset_name'].apply(clean_campaign_name)
-                                df_raw['campaign_name_clean'] = df_raw['campaign_name'].apply(clean_campaign_name)
-                                
-                                # Сохраняем в память и перезагружаем страницу, чтобы скрыть кнопку и показать фильтры
-                                st.session_state['gallery_data'] = df_raw
-                                st.session_state['gallery_loaded'] = True
-                                st.rerun() 
-                                
-                            else:
-                                st.warning("Активных трат за этот период не найдено.")
-                                st.stop()
-                                
-                        except Exception as e:
-                            st.error(f"Ошибка FB API: {e}")
+                            st.session_state['gallery_data'] = df_raw
+                            st.session_state['gallery_loaded'] = True
+                            st.rerun()
+                        else:
+                            st.warning("Нет данных в базе за этот период.")
                             st.stop()
                 else:
                     with st.sidebar:
@@ -1790,243 +1772,166 @@ else:
             # Удалите весь старый блок галереи после цикла (от "# Кнопка скачать все таблицы" до конца gallery_items)
         st.stop()
 
-# 5. ЗАГРУЗКА И ОБРАБОТКА ДАННЫХ
+# 5. ЗАГРУЗКА ДАННЫХ ИЗ БАЗЫ
     try:
-        all_data = []
-        
-        # --- ИСПРАВЛЕННЫЙ ДВОЙНОЙ ЦИКЛ ---
-        # Идем по каждой выбранной стране...
+        from collector import ACCOUNT_LABELS
+        selected_db_labels = set()
         for label in selected_labels:
-            # ...и по каждому аккаунту внутри нее
-            for single_id in merged_accounts[label]['ids']:
-                current_vat_mult = VAT_MAP.get(single_id, 1.0)
-                
-                temp_acc_id = f"act_{single_id}"
-                insights_url = f"https://graph.facebook.com/v19.0/{temp_acc_id}/insights"
-                params = {
-                    "fields": "account_currency,campaign_name,spend,impressions,inline_link_clicks,reach,date_start",
-                    "time_range": f"{{'since':'{start_date}','until':'{end_date}'}}",
-                    "level": "campaign",
-                    "time_increment": 1, 
-                    "limit": 500,
-                    "access_token": TOKEN
-                }
-                
-                response = requests.get(insights_url, params=params, timeout=120).json()
-                
-                temp_data = []
-                while True:
-                    if "data" in response:
-                        temp_data.extend(response["data"])
-                    if "paging" in response and "next" in response["paging"]:
-                        response = requests.get(response["paging"]["next"], timeout=120).json()
-                    else:
-                        break
-                        
-                if temp_data:
-                    df_temp = pd.DataFrame(temp_data)
-                    
-                    # ТЕПЕРЬ СТРАНА ПРИВЯЗЫВАЕТСЯ ПРАВИЛЬНО ИЗ ЦИКЛА!
-                    df_temp['Страна'] = label 
-                    
-                    df_temp['Затраты'] = df_temp['spend'].astype(float)
-                    df_temp['Затраты с НДС'] = df_temp['Затраты'] * current_vat_mult
-                    
-                    acc_curr = df_temp['account_currency'].iloc[0] if 'account_currency' in df_temp.columns else "USD"
-                    
-                    rates = get_rates(acc_curr)
-                    rub_rate = rates.get("RUB") if rates else None
-                    
-                    if rub_rate:
-                        df_temp['Затраты (RUB)'] = df_temp['Затраты'] * rub_rate
-                        df_temp['Затраты с НДС (RUB)'] = df_temp['Затраты с НДС'] * rub_rate
-                    else:
-                        df_temp['Затраты (RUB)'] = 0
-                        df_temp['Затраты с НДС (RUB)'] = 0
-                        
-                    cols_to_keep = ['date_start', 'campaign_name', 'Страна', 'impressions', 'inline_link_clicks', 'reach', 'Затраты', 'Затраты с НДС', 'Затраты (RUB)', 'Затраты с НДС (RUB)']
-                    for c in cols_to_keep:
-                        if c not in df_temp.columns:
-                             df_temp[c] = 0 if c not in ['date_start', 'campaign_name', 'Страна'] else None
-                             
-                    all_data.append(df_temp[cols_to_keep])
-        # ------------------------------------
+            for acc_id in merged_accounts[label]['ids']:
+                db_label = ACCOUNT_LABELS.get(acc_id)
+                if db_label:
+                    selected_db_labels.add(db_label)
 
-        if len(all_data) > 0:
-            df = pd.concat(all_data, ignore_index=True)
-            
-            # 1. Фильтрация по категории
-            if selected_category_label != "Все":
-                df = df[df['campaign_name'].str.contains(category_substring, case=False, na=False)]
-            
-            if df.empty:
-                st.warning(f"В категории '{selected_category_label}' нет данных")
-                st.stop()
+        df_from_db = load_insights_from_db(selected_db_labels, start_date, end_date)
 
-            # 2. Форматирование и чистка названий (БЕРЕМ ТОЛЬКО КАМПАНИИ)
-            df['Дата'] = pd.to_datetime(df['date_start'])
-            df['Название кампании'] = df['campaign_name'].apply(clean_campaign_name)
+        if df_from_db is None or df_from_db.empty:
+            st.warning("Нет данных в базе за выбранный период. Возможно коллектор ещё не запускался.")
+            # Показываем когда последний раз обновлялись данные
+            try:
+                last_sync = supabase.table("fb_sync_log")\
+                    .select("finished_at,status")\
+                    .order("finished_at", desc=True)\
+                    .limit(1).execute()
+                if last_sync.data:
+                    st.info(f"Последнее обновление: {last_sync.data[0]['finished_at'][:16]} — {last_sync.data[0]['status']}")
+            except:
+                pass
+            st.stop()
 
-            df = df.rename(columns={'impressions': 'Показы', 'inline_link_clicks': 'Клики', 'reach': 'Охват'})
-            for col in ['Показы', 'Клики', 'Охват']:
-                df[col] = df[col].astype(int)
+        # Переименовываем колонки под старые названия
+        df = df_from_db.rename(columns={
+            'date_start':    'date_start',
+            'country_label': 'Страна',
+            'campaign_name': 'campaign_name',
+            'impressions':   'impressions',
+            'clicks':        'inline_link_clicks',
+            'reach':         'reach',
+            'spend':         'Затраты',
+            'spend_vat':     'Затраты с НДС',
+            'spend_rub':     'Затраты (RUB)',
+            'spend_vat_rub': 'Затраты с НДС (RUB)',
+        })
 
-            # 3. Группируем по ДВУМ колонкам, чтобы сохранить связку "Страна - Кампания"
-            df_totals = df.groupby(['Страна', 'Название кампании']).agg({
-                'Затраты': 'sum',
-                'Затраты с НДС': 'sum',
-                'Затраты (RUB)': 'sum',
-                'Затраты с НДС (RUB)': 'sum',
-                'Показы': 'sum',
-                'Клики': 'sum',
-                'Охват': 'sum'
-            }).reset_index()
+        if selected_category_label != "Все":
+            df = df[df['campaign_name'].str.contains(category_substring, case=False, na=False)]
 
-            # 4. Вытаскиваем ИМЕНА КАМПАНИЙ для нижнего фильтра
-            all_campaigns = sorted(df_totals['Название кампании'].unique().tolist())
-            
-            # ДОРИСОВЫВАЕМ САЙДБАР
-            with st.sidebar:
-                st.divider()
-                selected_campaigns = st.multiselect("3. Фильтр по кампаниям:", options=all_campaigns, default=all_campaigns)
-                
-                st.divider()
-                
-                # Идем по всем уникальным валютам из выбранных стран
-                for c in sorted(list(selected_currencies)):
-                    if c == "RUB":
-                        st.info("Валюта: RUB")
-                    else:
-                        sidebar_rates = get_rates(c)
-                        sidebar_rub_rate = sidebar_rates.get("RUB") if sidebar_rates else None
-                        if sidebar_rub_rate:
-                            st.success(f"Курс: 1 {c} = {sidebar_rub_rate:.4f} RUB")
-                        else:
-                            st.info(f"Валюта: {c}")
-                
-                if st.button('🔄 Обновить'): st.rerun()
-                st.divider()
-                
-                st.markdown("### 🧭 Навигация")
-                if st.button("🖼️ Библиотека креативов", use_container_width=True):
-                    st.session_state['app_mode'] = "🖼️ Библиотека креативов"
-                    st.rerun()
-                
-                st.divider()
-                if st.button("🚪 Выйти"):
-                    st.session_state["authenticated"] = False
-                    cookies["authenticated"] = "false"
-                    cookies.save()
-                    st.rerun()
+        if df.empty:
+            st.warning(f"В категории '{selected_category_label}' нет данных")
+            st.stop()
 
-            # Применяем фильтр КАМПАНИЙ
-            df_totals_filtered = df_totals[df_totals['Название кампании'].isin(selected_campaigns)]
-            df_daily_filtered = df[df['Название кампании'].isin(selected_campaigns)]
+        df['Дата'] = pd.to_datetime(df['date_start'])
+        df['Название кампании'] = df['campaign_name'].apply(clean_campaign_name)
+        df = df.rename(columns={'impressions': 'Показы', 'inline_link_clicks': 'Клики', 'reach': 'Охват'})
+        for col in ['Показы', 'Клики', 'Охват']:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
 
-            if df_totals_filtered.empty:
-                st.warning("Выберите кампанию")
-                st.stop()
+        df_totals = df.groupby(['Страна', 'Название кампании']).agg({
+            'Затраты': 'sum',
+            'Затраты с НДС': 'sum',
+            'Затраты (RUB)': 'sum',
+            'Затраты с НДС (RUB)': 'sum',
+            'Показы': 'sum',
+            'Клики': 'sum',
+            'Охват': 'sum'
+        }).reset_index()
 
-            # --- ВЫВОД МЕТРИК ---
+        all_campaigns = sorted(df_totals['Название кампании'].unique().tolist())
+
+        with st.sidebar:
             st.divider()
-            # Настраиваем ширину: деньги делаем шире (1.3 - 1.5), показы/клики/охват — стандартными (1)
-            col_m = st.columns([1.3, 1.3, 1.5, 1, 1, 1])
-            
-            if curr == "MIXED":
-                # В шапке сворачиваем до СТРАН
-                grouped_df = df_totals_filtered.groupby('Страна')[['Затраты', 'Затраты с НДС']].sum().reset_index()
-                
-                spend_lines = []
-                nds_lines = []
-                for _, row in grouped_df.iterrows():
-                    c_name = row['Страна']
-                    c_curr = merged_accounts.get(c_name, {}).get('currency', '')
-                    curr_text = f" ({c_curr})" if c_curr else ""
-                    
-                    # Заменили .0f на .2f
-                    spend_lines.append(f"{c_name}{curr_text} — <b>{row['Затраты']:,.2f}</b>")
-                    nds_lines.append(f"{c_name}{curr_text} — <b>{row['Затраты с НДС']:,.2f}</b>")
-                
-                spend_html = "<br>".join(spend_lines)
-                nds_html = "<br>".join(nds_lines)
-                
-                col_m[0].markdown(f"<div style='font-size: 14px; color: gray; margin-bottom: 4px;'>Затраты (Лок.)</div><div style='font-size: 14px; line-height: 1.6;'>{spend_html}</div>", unsafe_allow_html=True)
-                col_m[1].markdown(f"<div style='font-size: 14px; color: gray; margin-bottom: 4px;'>С НДС (Лок.)</div><div style='font-size: 14px; line-height: 1.6;'>{nds_html}</div>", unsafe_allow_html=True)
-            else:
-                # Заменили .0f на .2f
-                col_m[0].metric(f"Затраты ({curr})", f"{df_totals_filtered['Затраты'].sum():,.2f}")
-                col_m[1].metric(f"Затраты с НДС ({curr})", f"{df_totals_filtered['Затраты с НДС'].sum():,.2f}")
-                
-            # Заменили .0f на .2f
-            col_m[2].metric("Затраты с НДС (RUB)", f"{df_totals_filtered['Затраты с НДС (RUB)'].sum():,.2f} ₽")
-            col_m[3].metric("Показы", f"{df_totals_filtered['Показы'].sum():,}")
-            col_m[4].metric("Клики", f"{df_totals_filtered['Клики'].sum():,}")
-            col_m[5].metric("Охват", f"{df_totals_filtered['Охват'].sum():,}")
-
-            ## --- ГРАФИК ---
+            selected_campaigns = st.multiselect("3. Фильтр по кампаниям:", options=all_campaigns, default=all_campaigns)
             st.divider()
-            st.subheader("📈 Динамика расходов")
-            
-            # Делаем две колонки для фильтров графика
-            col_g1, col_g2 = st.columns(2)
-            
-            unique_countries = sorted(df_totals_filtered['Страна'].unique())
-            
-            with col_g1:
-                country_plot_opts = ["Все выбранные страны (Сумма)"] + unique_countries
-                selected_plot_country = st.selectbox("1. Страна для графика:", options=country_plot_opts)
-                
-            with col_g2:
-                # Умный список: показываем кампании только для выбранной страны
-                if selected_plot_country == "Все выбранные страны (Сумма)":
-                    camps_for_plot = sorted(df_totals_filtered['Название кампании'].unique())
+            for c in sorted(list(selected_currencies)):
+                if c == "RUB":
+                    st.info("Валюта: RUB")
                 else:
-                    camps_for_plot = sorted(df_totals_filtered[df_totals_filtered['Страна'] == selected_plot_country]['Название кампании'].unique())
-                    
-                camp_plot_opts = ["Все кампании (Сумма)"] + camps_for_plot
-                selected_plot_camp = st.selectbox("2. Кампания для графика:", options=camp_plot_opts)
+                    sidebar_rates = get_rates(c)
+                    sidebar_rub_rate = sidebar_rates.get("RUB") if sidebar_rates else None
+                    if sidebar_rub_rate:
+                        st.success(f"Курс: 1 {c} = {sidebar_rub_rate:.4f} RUB")
+                    else:
+                        st.info(f"Валюта: {c}")
+            # Показываем время последнего обновления
+            try:
+                last_sync = supabase.table("fb_sync_log")\
+                    .select("finished_at,status")\
+                    .order("finished_at", desc=True)\
+                    .limit(1).execute()
+                if last_sync.data:
+                    st.caption(f"🕐 Данные обновлены: {last_sync.data[0]['finished_at'][:16]}")
+            except:
+                pass
+            if st.button('🔄 Обновить'): st.rerun()
+            st.divider()
+            st.markdown("### 🧭 Навигация")
+            if st.button("🖼️ Библиотека креативов", use_container_width=True):
+                st.session_state['app_mode'] = "🖼️ Библиотека креативов"
+                st.rerun()
+            st.divider()
+            if st.button("🚪 Выйти"):
+                st.session_state["authenticated"] = False
+                cookies["authenticated"] = "false"
+                cookies.save()
+                st.rerun()
 
-            # Определяем, какие данные берем для графика исходя из двух фильтров
-            if selected_plot_country == "Все выбранные страны (Сумма)":
-                if selected_plot_camp == "Все кампании (Сумма)":
-                    # Общая сумма вообще всего
-                    d_data = df_daily_filtered.groupby('Дата').agg({'Затраты с НДС (RUB)': 'sum'}).reset_index()
-                else:
-                    # Конкретная кампания (независимо от страны)
-                    d_data = df_daily_filtered[df_daily_filtered['Название кампании'] == selected_plot_camp].groupby('Дата').agg({'Затраты с НДС (RUB)': 'sum'}).reset_index()
-            else:
-                if selected_plot_camp == "Все кампании (Сумма)":
-                    # Сумма по конкретной стране
-                    d_data = df_daily_filtered[df_daily_filtered['Страна'] == selected_plot_country].groupby('Дата').agg({'Затраты с НДС (RUB)': 'sum'}).reset_index()
-                else:
-                    # Конкретная кампания внутри конкретной страны
-                    d_data = df_daily_filtered[(df_daily_filtered['Страна'] == selected_plot_country) & (df_daily_filtered['Название кампании'] == selected_plot_camp)].groupby('Дата').agg({'Затраты с НДС (RUB)': 'sum'}).reset_index()
+        df_totals_filtered = df_totals[df_totals['Название кампании'].isin(selected_campaigns)]
+        df_daily_filtered  = df[df['Название кампании'].isin(selected_campaigns)]
 
-            # Рисуем сам график
-            fig = px.line(d_data.sort_values('Дата'), x='Дата', y='Затраты с НДС (RUB)', markers=True, line_shape='spline')
-            st.plotly_chart(fig, use_container_width=True)
+        if df_totals_filtered.empty:
+            st.warning("Выберите кампанию")
+            st.stop()
 
-            # --- ДЕТАЛЬНАЯ ТАБЛИЦА ---
-            st.subheader("Детальная таблица")
-            
-            # Берем всё в одну таблицу, можем добавить колонку 'Страна' для наглядности
-            display_df = df_totals_filtered[['Страна', 'Название кампании', 'Показы', 'Клики', 'Охват', 'Затраты', 'Затраты с НДС', 'Затраты с НДС (RUB)']].copy()
-            
-            # Выводим единую таблицу с форматированием (2 знака для денег, 0 для метрик)
-            st.dataframe(
-                display_df.style.format({
-                    'Затраты': "{:,.2f}",
-                    'Затраты с НДС': "{:,.2f}",
-                    'Затраты с НДС (RUB)': "{:,.2f}",
-                    'Показы': "{:,.0f}",
-                    'Клики': "{:,.0f}",
-                    'Охват': "{:,.0f}"
-                }), 
-                use_container_width=True
-            )
-            
+        # --- ВЫВОД МЕТРИК ---
+        st.divider()
+        col_m = st.columns([1.3, 1.3, 1.5, 1, 1, 1])
+
+        if curr == "MIXED":
+            grouped_df = df_totals_filtered.groupby('Страна')[['Затраты', 'Затраты с НДС']].sum().reset_index()
+            spend_lines = []
+            nds_lines = []
+            for _, row in grouped_df.iterrows():
+                c_name = row['Страна']
+                c_curr = merged_accounts.get(c_name, {}).get('currency', '')
+                curr_text = f" ({c_curr})" if c_curr else ""
+                spend_lines.append(f"{c_name}{curr_text} — <b>{row['Затраты']:,.2f}</b>")
+                nds_lines.append(f"{c_name}{curr_text} — <b>{row['Затраты с НДС']:,.2f}</b>")
+            col_m[0].markdown(f"<div style='font-size:14px;color:gray;margin-bottom:4px;'>Затраты (Лок.)</div><div style='font-size:14px;line-height:1.6;'>{'<br>'.join(spend_lines)}</div>", unsafe_allow_html=True)
+            col_m[1].markdown(f"<div style='font-size:14px;color:gray;margin-bottom:4px;'>С НДС (Лок.)</div><div style='font-size:14px;line-height:1.6;'>{'<br>'.join(nds_lines)}</div>", unsafe_allow_html=True)
         else:
-            st.warning("Нет данных за выбранный период.")
+            col_m[0].metric(f"Затраты ({curr})", f"{df_totals_filtered['Затраты'].sum():,.2f}")
+            col_m[1].metric(f"Затраты с НДС ({curr})", f"{df_totals_filtered['Затраты с НДС'].sum():,.2f}")
+
+        col_m[2].metric("Затраты с НДС (RUB)", f"{df_totals_filtered['Затраты с НДС (RUB)'].sum():,.2f} ₽")
+        col_m[3].metric("Показы", f"{df_totals_filtered['Показы'].sum():,}")
+        col_m[4].metric("Клики", f"{df_totals_filtered['Клики'].sum():,}")
+        col_m[5].metric("Охват", f"{df_totals_filtered['Охват'].sum():,}")
+
+        st.divider()
+        st.subheader("📈 Динамика расходов")
+        col_g1, col_g2 = st.columns(2)
+        unique_countries = sorted(df_totals_filtered['Страна'].unique())
+        with col_g1:
+            selected_plot_country = st.selectbox("1. Страна для графика:", ["Все выбранные страны (Сумма)"] + unique_countries)
+        with col_g2:
+            camps_for_plot = sorted(df_totals_filtered['Название кампании'].unique()) if selected_plot_country == "Все выбранные страны (Сумма)" else sorted(df_totals_filtered[df_totals_filtered['Страна'] == selected_plot_country]['Название кампании'].unique())
+            selected_plot_camp = st.selectbox("2. Кампания для графика:", ["Все кампании (Сумма)"] + camps_for_plot)
+
+        if selected_plot_country == "Все выбранные страны (Сумма)":
+            d_data = df_daily_filtered if selected_plot_camp == "Все кампании (Сумма)" else df_daily_filtered[df_daily_filtered['Название кампании'] == selected_plot_camp]
+        else:
+            d_data = df_daily_filtered[df_daily_filtered['Страна'] == selected_plot_country] if selected_plot_camp == "Все кампании (Сумма)" else df_daily_filtered[(df_daily_filtered['Страна'] == selected_plot_country) & (df_daily_filtered['Название кампании'] == selected_plot_camp)]
+        d_data = d_data.groupby('Дата').agg({'Затраты с НДС (RUB)': 'sum'}).reset_index()
+
+        fig = px.line(d_data.sort_values('Дата'), x='Дата', y='Затраты с НДС (RUB)', markers=True, line_shape='spline')
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Детальная таблица")
+        display_df = df_totals_filtered[['Страна', 'Название кампании', 'Показы', 'Клики', 'Охват', 'Затраты', 'Затраты с НДС', 'Затраты с НДС (RUB)']].copy()
+        st.dataframe(display_df.style.format({
+            'Затраты': "{:,.2f}", 'Затраты с НДС': "{:,.2f}",
+            'Затраты с НДС (RUB)': "{:,.2f}", 'Показы': "{:,.0f}",
+            'Клики': "{:,.0f}", 'Охват': "{:,.0f}"
+        }), use_container_width=True)
 
     except Exception as e:
         st.error(f"Ошибка при обработке данных: {e}")
