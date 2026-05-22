@@ -342,11 +342,10 @@ if main_tab == "Клиенты":
         with st.sidebar:
             st.header("Настройки")
             all_camps_c = sorted(df_clients['campaign_clean'].unique().tolist())
-            accounts_key_c = "_".join(sorted(selected_labels)) if 'selected_labels' in dir() else "default"
-            sel_camps_c = st.multiselect("Кампания:", all_camps_c, default=all_camps_c, key=f"clnt_camps_{accounts_key_c}")
+            sel_camps_c = st.multiselect("Кампания:", all_camps_c, default=all_camps_c, key="clnt_camps")
             df_c_filtered = df_clients[df_clients['campaign_clean'].isin(sel_camps_c)]
             all_adsets_c = sorted(df_c_filtered['adset_norm'].unique().tolist())
-            sel_adsets_c = st.multiselect("Группа (Ad Set):", all_adsets_c, default=all_adsets_c, key=f"clnt_adsets_{accounts_key_c}")
+            sel_adsets_c = st.multiselect("Группа (Ad Set):", all_adsets_c, default=all_adsets_c, key="clnt_adsets")
 
             if st.button("📊 Загрузить таблицы", use_container_width=True, key="clnt_tables"):
                 st.session_state['clnt_table_loaded'] = True
@@ -819,7 +818,7 @@ try {{
                         else:
                             cards_html_c += f"""<div style="display:flex;flex-direction:column;gap:8px;{border_style}padding:{'4px' if is_leader else '0'}"><div style="width:100%;aspect-ratio:1;background:#2a2a2a;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#666;">Нет фото</div><div style="font-size:13px;color:#ccc;word-break:break-word;">{item['name']}</div></div>"""
                     full_html_c = f"""<html><head><style>body{{margin:0;padding:0;background:transparent}}</style></head><body><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:12px;font-family:sans-serif;">{cards_html_c}</div></body></html>"""
-                    components.html(full_html_c, height=(len(gallery_items_c) // 5 + 1) * 380 + 50, scrolling=True)
+                    components.html(full_html_c, height=(len(gallery_items_c) // 5 + 1) * 260 + 50, scrolling=True)
 
             # Удалите старый блок "# Скачать все таблицы" и "# Галерея" после цикла
 
@@ -832,17 +831,28 @@ else:
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 @st.cache_data(ttl=1800)
 def load_insights_from_db(labels, start_date, end_date):
-    """Читает статистику кампаний из Supabase"""
+    """Читает статистику кампаний из Supabase с пагинацией (обход лимита 1000)"""
     try:
-        resp = supabase.table("fb_insights_daily")\
-            .select("*")\
-            .in_("country_label", list(labels))\
-            .gte("date_start", str(start_date))\
-            .lte("date_start", str(end_date))\
-            .execute()
-        if not resp.data:
+        all_rows = []
+        page_size = 1000
+        offset = 0
+        while True:
+            resp = supabase.table("fb_insights_daily")\
+                .select("*")\
+                .in_("country_label", list(labels))\
+                .gte("date_start", str(start_date))\
+                .lte("date_start", str(end_date))\
+                .range(offset, offset + page_size - 1)\
+                .execute()
+            if not resp.data:
+                break
+            all_rows.extend(resp.data)
+            if len(resp.data) < page_size:
+                break
+            offset += page_size
+        if not all_rows:
             return None
-        df = pd.DataFrame(resp.data)
+        df = pd.DataFrame(all_rows)
         df['date_start'] = pd.to_datetime(df['date_start'])
         return df
     except Exception as e:
@@ -851,17 +861,28 @@ def load_insights_from_db(labels, start_date, end_date):
 
 @st.cache_data(ttl=1800)
 def load_creatives_from_db(labels, start_date, end_date):
-    """Читает данные по макетам из Supabase"""
+    """Читает данные по макетам из Supabase с пагинацией (обход лимита 1000)"""
     try:
-        resp = supabase.table("fb_ads_creatives")\
-            .select("*")\
-            .in_("country_label", list(labels))\
-            .gte("date_start", str(start_date))\
-            .lte("date_start", str(end_date))\
-            .execute()
-        if not resp.data:
+        all_rows = []
+        page_size = 1000
+        offset = 0
+        while True:
+            resp = supabase.table("fb_ads_creatives")\
+                .select("*")\
+                .in_("country_label", list(labels))\
+                .gte("date_start", str(start_date))\
+                .lte("date_start", str(end_date))\
+                .range(offset, offset + page_size - 1)\
+                .execute()
+            if not resp.data:
+                break
+            all_rows.extend(resp.data)
+            if len(resp.data) < page_size:
+                break
+            offset += page_size
+        if not all_rows:
             return None
-        return pd.DataFrame(resp.data)
+        return pd.DataFrame(all_rows)
     except Exception as e:
         st.error(f"Ошибка загрузки макетов из базы: {e}")
         return None
@@ -1186,9 +1207,6 @@ else:
         if 'gallery_loaded' not in st.session_state:
             st.session_state['gallery_loaded'] = False
 
-        if 'gallery_loaded' not in st.session_state:
-            st.session_state['gallery_loaded'] = False
-
         # --- ТЕПЕРЬ ЗАГРУЗКА ИДЕТ ТОЛЬКО ПО КНОПКЕ ---
         if not st.session_state['gallery_loaded']:
             with st.sidebar:
@@ -1269,12 +1287,11 @@ else:
             df_ads_cat = df_ads
 
             all_camps = sorted(df_ads_cat['campaign_name_clean'].unique().tolist())
-            accounts_key = "_".join(sorted(selected_labels))
-            sel_camps = st.multiselect("Кампания:", all_camps, default=all_camps, key=f"lib_sel_c_{accounts_key}")
+            sel_camps = st.multiselect("Кампания:", all_camps, default=all_camps, key="lib_sel_c")
             
             filtered_for_adsets = df_ads_cat[df_ads_cat['campaign_name_clean'].isin(sel_camps)]
             all_adsets = sorted(filtered_for_adsets['Название группы'].unique().tolist())
-            sel_adsets = st.multiselect("Группа (Ad Set):", all_adsets, default=all_adsets, key=f"lib_sel_a_{accounts_key}")
+            sel_adsets = st.multiselect("Группа (Ad Set):", all_adsets, default=all_adsets, key="lib_sel_a")
             
             if st.button("📊 Загрузить таблицы", use_container_width=True):
                 st.session_state['table_loaded'] = True
@@ -1418,6 +1435,7 @@ else:
                     
                     # Охват берём из оригинальных данных если есть
                     if 'reach' in df_c.columns:
+                        df_c['reach'] = pd.to_numeric(df_c['reach'], errors='coerce').fillna(0)
                         reach_data = df_c.groupby('Макет')['reach'].sum().reset_index()
                         cpm_data = cpm_data.merge(reach_data, on='Макет', how='left')
                         cpm_data['Охват'] = cpm_data['reach'].fillna(0).astype(int)
@@ -1456,7 +1474,7 @@ else:
                             elif col == 'CTR %':
                                 return f"{float(val):.2f}%"
                             elif col == 'CPM':
-                                return f"{float(val):.2f}"
+                                return f"{int(round(float(val))):,}"
                             else:
                                 return str(val) if val is not None else ''
                         except:
@@ -1495,12 +1513,14 @@ else:
 
                 def fmt_val(col, val):
                     try:
-                        if col in ['Показы', 'Клики', 'Результаты']:
+                        if col in ['Показы', 'Клики', 'Результаты', 'Охват']:
                             return f"{int(float(val)):,}"
                         elif col == 'CTR %':
                             return f"{float(val):.2f}%"
                         elif col == 'Цена за результат':
                             return f"{int(float(val)):,}"
+                        elif col == 'CPM':
+                            return f"{int(round(float(val))):,}"
                         elif col == 'LPM':
                             return f"{float(val):.2f}"
                         else:
@@ -1769,7 +1789,7 @@ else:
                         else:
                             cards_html += f"""<div style="display:flex;flex-direction:column;gap:8px;{border_style}padding:{'4px' if is_leader else '0'}"><div style="width:100%;aspect-ratio:1;background:#2a2a2a;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#666;">Нет фото</div><div style="font-size:13px;color:#ccc;">{item['name']}</div></div>"""
                     full_html = f"""<html><head><style>::-webkit-scrollbar{{width:6px}}::-webkit-scrollbar-track{{background:#1e1e1e;border-radius:3px}}::-webkit-scrollbar-thumb{{background:#444;border-radius:3px}}body{{margin:0;padding:0;background:transparent}}</style></head><body><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:12px;font-family:sans-serif;">{cards_html}</div></body></html>"""
-                    components.html(full_html, height=(len(gallery_items) // 5 + 1) * 380 + 50, scrolling=False)
+                    components.html(full_html, height=(len(gallery_items) // 5 + 1) * 260 + 50, scrolling=False)
 
             # Удалите весь старый блок галереи после цикла (от "# Кнопка скачать все таблицы" до конца gallery_items)
         st.stop()
