@@ -342,10 +342,11 @@ if main_tab == "Клиенты":
         with st.sidebar:
             st.header("Настройки")
             all_camps_c = sorted(df_clients['campaign_clean'].unique().tolist())
-            sel_camps_c = st.multiselect("Кампания:", all_camps_c, default=all_camps_c, key="clnt_camps")
+            accounts_key_c = "_".join(sorted(selected_labels)) if 'selected_labels' in dir() else "default"
+            sel_camps_c = st.multiselect("Кампания:", all_camps_c, default=all_camps_c, key=f"clnt_camps_{accounts_key_c}")
             df_c_filtered = df_clients[df_clients['campaign_clean'].isin(sel_camps_c)]
             all_adsets_c = sorted(df_c_filtered['adset_norm'].unique().tolist())
-            sel_adsets_c = st.multiselect("Группа (Ad Set):", all_adsets_c, default=all_adsets_c, key="clnt_adsets")
+            sel_adsets_c = st.multiselect("Группа (Ad Set):", all_adsets_c, default=all_adsets_c, key=f"clnt_adsets_{accounts_key_c}")
 
             if st.button("📊 Загрузить таблицы", use_container_width=True, key="clnt_tables"):
                 st.session_state['clnt_table_loaded'] = True
@@ -1268,11 +1269,12 @@ else:
             df_ads_cat = df_ads
 
             all_camps = sorted(df_ads_cat['campaign_name_clean'].unique().tolist())
-            sel_camps = st.multiselect("Кампания:", all_camps, default=all_camps, key="lib_sel_c")
+            accounts_key = "_".join(sorted(selected_labels))
+            sel_camps = st.multiselect("Кампания:", all_camps, default=all_camps, key=f"lib_sel_c_{accounts_key}")
             
             filtered_for_adsets = df_ads_cat[df_ads_cat['campaign_name_clean'].isin(sel_camps)]
             all_adsets = sorted(filtered_for_adsets['Название группы'].unique().tolist())
-            sel_adsets = st.multiselect("Группа (Ad Set):", all_adsets, default=all_adsets, key="lib_sel_a")
+            sel_adsets = st.multiselect("Группа (Ad Set):", all_adsets, default=all_adsets, key=f"lib_sel_a_{accounts_key}")
             
             if st.button("📊 Загрузить таблицы", use_container_width=True):
                 st.session_state['table_loaded'] = True
