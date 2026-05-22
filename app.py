@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.express as px
 import os
 import re
+import math
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from google.oauth2 import service_account
@@ -819,7 +820,7 @@ try {{
                             cards_html_c += f"""<div style="display:flex;flex-direction:column;gap:8px;{border_style}padding:{'4px' if is_leader else '0'}"><div style="width:100%;aspect-ratio:1;background:#2a2a2a;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#666;">Нет фото</div><div style="font-size:13px;color:#ccc;word-break:break-word;">{item['name']}</div></div>"""
                     full_html_c = f"""<html><head><style>body{{margin:0;padding:0;background:transparent}}</style></head><body><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:12px;font-family:sans-serif;">{cards_html_c}</div></body></html>"""
                     rows_count_c = math.ceil(len(gallery_items_c) / 5) if gallery_items_c else 1
-components.html(full_html_c, height=rows_count_c * 360 + 80, scrolling=True)
+                    components.html(full_html_c, height=rows_count_c * 360 + 80, scrolling=True)
 
             # Удалите старый блок "# Скачать все таблицы" и "# Галерея" после цикла
 
@@ -1790,9 +1791,8 @@ else:
                         else:
                             cards_html += f"""<div style="display:flex;flex-direction:column;gap:8px;{border_style}padding:{'4px' if is_leader else '0'}"><div style="width:100%;aspect-ratio:1;background:#2a2a2a;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#666;">Нет фото</div><div style="font-size:13px;color:#ccc;">{item['name']}</div></div>"""
                     full_html = f"""<html><head><style>::-webkit-scrollbar{{width:6px}}::-webkit-scrollbar-track{{background:#1e1e1e;border-radius:3px}}::-webkit-scrollbar-thumb{{background:#444;border-radius:3px}}body{{margin:0;padding:0;background:transparent}}</style></head><body><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:12px;font-family:sans-serif;">{cards_html}</div></body></html>"""
-                    import math
-rows_count = math.ceil(len(gallery_items) / 5) if gallery_items else 1
-components.html(full_html, height=rows_count * 360 + 80, scrolling=True)
+                    rows_count = math.ceil(len(gallery_items) / 5) if gallery_items else 1
+                    components.html(full_html, height=rows_count * 360 + 80, scrolling=True)
 
             # Удалите весь старый блок галереи после цикла (от "# Кнопка скачать все таблицы" до конца gallery_items)
         st.stop()
