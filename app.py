@@ -1204,29 +1204,6 @@ else:
 
                         df_raw = load_creatives_from_db(selected_db_labels, start_date, end_date)
 
-                        # === ДИАГНОСТИКА ===
-                        st.write("🔍 **Диагностика загрузки:**")
-                        st.write(f"**Выбрано аккаунтов в интерфейсе:** {len(selected_labels)} — {selected_labels}")
-                        st.write(f"**Labels отправленные в базу:** {selected_db_labels}")
-                        st.write(f"**Период:** {start_date} → {end_date}")
-                        if df_raw is None:
-                            st.error("df_raw = None (база ничего не вернула)")
-                        elif df_raw.empty:
-                            st.error("df_raw пустой")
-                        else:
-                            st.success(f"Строк из базы: {len(df_raw)}")
-                            st.write("**Страны в полученных данных:**")
-                            st.write(df_raw['country_label'].value_counts())
-                            st.write(f"**Уникальных сырых campaign_name:** {df_raw['campaign_name'].nunique()}")
-                            st.write("Примеры сырых названий (первые 30):")
-                            st.write(list(df_raw['campaign_name'].unique()[:30]))
-                            test_clean = df_raw['campaign_name'].apply(clean_campaign_name)
-                            st.write(f"**Уникальных ПОСЛЕ clean_campaign_name:** {test_clean.nunique()}")
-                            st.write("Примеры очищенных (первые 30):")
-                            st.write(list(test_clean.unique()[:30]))
-                        st.write("---")
-                        # === КОНЕЦ ДИАГНОСТИКИ ===
-
                         if df_raw is not None and not df_raw.empty:
                             def normalize_adset(name):
                                 if not name: return ''
