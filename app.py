@@ -807,7 +807,9 @@ try {{
                         if item['img_url']:
                             if item['is_video'] and item.get('video_src'):
                                 if 'drive.google.com' in item['video_src']:
-                                    media_html = f"""<iframe src="{item['video_src']}" style="width:100%;aspect-ratio:1;border:none;border-radius:10px;" allowfullscreen></iframe>"""
+                                    drive_id = item['video_src'].split('/d/')[1].split('/')[0]
+                                    direct_url = f"https://drive.google.com/uc?export=download&id={drive_id}"
+                                    media_html = f"""<div style="width:100%;aspect-ratio:1;border-radius:10px;overflow:hidden;background:#000;"><video src="{direct_url}" style="width:100%;height:100%;object-fit:cover;display:block;" controls preload="metadata" playsinline></video></div>"""
                                 else:
                                     media_html = f"""<div style="width:100%;aspect-ratio:1;border-radius:10px;overflow:hidden;background:#000;"><video src="{item['video_src']}" style="width:100%;height:100%;object-fit:cover;display:block;" controls preload="metadata" playsinline></video></div>"""
                             else:
@@ -1779,6 +1781,9 @@ else:
                         if item['img_url']:
                             if item['is_video'] and item.get('video_src'):
                                 if 'drive.google.com' in item['video_src']:
+                                    drive_id = item['video_src'].split('/d/')[1].split('/')[0]
+                                    direct_url = f"https://drive.google.com/uc?export=download&id={drive_id}"
+                                    media_html = f"""<div style="width:100%;aspect-ratio:1;border-radius:10px;overflow:hidden;background:#000;"><video src="{direct_url}" style="width:100%;height:100%;object-fit:cover;display:block;" controls preload="metadata" playsinline></video></div>"""
                                     media_html = f"""<iframe src="{item['video_src']}" style="width:100%;aspect-ratio:1;border:none;border-radius:10px;" allowfullscreen></iframe>"""
                                 else:
                                     media_html = f"""<video src="{item['video_src']}" style="width:100%;height:auto;display:block;border-radius:10px;" controls preload="metadata" playsinline></video>"""
