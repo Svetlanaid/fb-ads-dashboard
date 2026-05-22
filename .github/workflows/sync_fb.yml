@@ -1,41 +1,31 @@
-name: Сбор данных из Facebook
+name: FB Collector Daily
 
 on:
   schedule:
-    # Запускается 4 раза в день (время UTC, для Москвы +3)
-    # 05:00 UTC = 08:00 МСК
-    # 09:00 UTC = 12:00 МСК
-    # 14:00 UTC = 17:00 МСК
-    # 19:00 UTC = 22:00 МСК
-    - cron: '0 5 * * *'
-    - cron: '0 9 * * *'
-    - cron: '0 14 * * *'
+    # Запуск каждый день в 00:00 МСК (= 21:00 UTC предыдущего дня)
     - cron: '0 19 * * *'
-
-  # Эта строка позволяет запустить вручную из GitHub если нужно
-  workflow_dispatch:
+  workflow_dispatch:  # позволяет запустить вручную из GitHub
 
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    timeout-minutes: 60
     steps:
-      - name: Скачать код
-        uses: actions/checkout@v4
-
-      - name: Установить Python
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-
-      - name: Установить зависимости
+          python-version: '3.12'
+      
+      - name: Install dependencies
         run: |
-          pip install requests supabase
-
-      - name: Запустить сбор данных
+          python -m pip install --upgrade pip
+          pip install supabase requests
+      
+      - name: Run collector
         env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           FB_ACCESS_TOKEN: ${{ secrets.FB_ACCESS_TOKEN }}
-          SUPABASE_URL:    ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY:    ${{ secrets.SUPABASE_KEY }}
         run: python collector.py
