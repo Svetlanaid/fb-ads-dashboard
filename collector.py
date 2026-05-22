@@ -149,9 +149,9 @@ def collect_insights(account_id: str, currency: str, since: str, until: str):
     rows_to_upsert = []
     url = f"https://graph.facebook.com/v19.0/act_{account_id}/insights"
     params = {
-        "fields": "campaign_name,adset_name,ad_name,ad_id,spend,impressions,inline_link_clicks,reach,actions,date_start",
+        "fields": "campaign_name,spend,impressions,inline_link_clicks,reach,date_start",
         "time_range": f"{{'since':'{since}','until':'{until}'}}",
-        "level": "ad",
+        "level": "campaign",
         "time_increment": 1,
         "limit": 500,
         "access_token": FB_TOKEN
@@ -236,7 +236,7 @@ def collect_creatives(account_id: str, currency: str, since: str, until: str):
     rows_to_upsert = []
     url = f"https://graph.facebook.com/v19.0/act_{account_id}/insights"
     params = {
-        "fields": "campaign_name,adset_name,ad_name,ad_id,spend,impressions,inline_link_clicks,actions,date_start",
+        "fields": "campaign_name,adset_name,ad_name,ad_id,spend,impressions,inline_link_clicks,reach,actions,date_start",
         "time_range": f"{{'since':'{since}','until':'{until}'}}",
         "level": "ad",
         "time_increment": 1,
