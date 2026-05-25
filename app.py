@@ -1379,15 +1379,16 @@ else:
             for camp_name in unique_camps:
                 df_c = df_filtered[df_filtered['campaign_name_clean'] == camp_name].copy()
                 
-                # 1. Агрегация для таблицы (Названия по вашему списку)
-                # Агрегируем по МАКЕТУ (ad_id), а не по кампании
-                table_data = df_c.groupby('Макет').agg({
+                # 1. Агрегация для таблицы — группируем по ad_id (уникальный макет в FB),
+                # имя берём как первое попавшееся в группе.
+                # Так лиды разных макетов с похожими именами не схлопываются.
+                table_data = df_c.groupby('ad_id', dropna=False).agg({
                     'Показы': 'sum',
                     'Клики': 'sum',
                     'Затраты (RUB)': 'sum',
                     'Результаты': 'sum',
                     'adset_norm': lambda x: set(x.dropna().unique()),
-                    'ad_id': 'first',
+                    'Макет': 'first',
                 }).reset_index()
 
                 table_data = table_data.rename(columns={
@@ -1462,19 +1463,19 @@ else:
 
                 if is_cpm_camp:
                     # Для CPM кампаний — отдельная агрегация с охватом
-                    cpm_data = df_c.groupby('Макет').agg({
+                    cpm_data = df_c.groupby('ad_id', dropna=False).agg({
                         'Показы': 'sum',
                         'Клики': 'sum',
                         'Затраты (RUB)': 'sum',
                         'adset_norm': lambda x: set(x.dropna().unique()),
-                        'ad_id': 'first',
+                        'Макет': 'first',
                     }).reset_index()
                     
                     # Охват берём из оригинальных данных если есть
                     if 'reach' in df_c.columns:
                         df_c['reach'] = pd.to_numeric(df_c['reach'], errors='coerce').fillna(0)
-                        reach_data = df_c.groupby('Макет')['reach'].sum().reset_index()
-                        cpm_data = cpm_data.merge(reach_data, on='Макет', how='left')
+                        reach_data = df_c.groupby('ad_id', dropna=False)['reach'].sum().reset_index()
+                        cpm_data = cpm_data.merge(reach_data, on='ad_id', how='left')
                         cpm_data['Охват'] = cpm_data['reach'].fillna(0).astype(int)
                         cpm_data.drop(columns=['reach'], inplace=True)
                     else:
