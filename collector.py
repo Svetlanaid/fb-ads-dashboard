@@ -4,6 +4,8 @@ collector.py — Скрипт сбора данных из Facebook Ads → Supa
 """
 
 import os
+from dotenv import load_dotenv
+load_dotenv()
 import re
 import requests
 from datetime import datetime, timedelta
@@ -149,10 +151,12 @@ def collect_insights(account_id: str, currency: str, since: str, until: str):
     rows_to_upsert = []
     url = f"https://graph.facebook.com/v19.0/act_{account_id}/insights"
     params = {
-        "fields": "campaign_name,spend,impressions,inline_link_clicks,reach,date_start",
+        "fields": "campaign_name,spend,impressions,clicks,inline_link_clicks,reach,actions,date_start",
         "time_range": f"{{'since':'{since}','until':'{until}'}}",
         "level": "campaign",
         "time_increment": 1,
+        "action_attribution_windows": "['7d_click','1d_view']",
+        "use_account_attribution_setting": "true",
         "limit": 500,
         "access_token": FB_TOKEN
     }
@@ -166,7 +170,10 @@ def collect_insights(account_id: str, currency: str, since: str, until: str):
 
             for row in resp.get("data", []):
                 spend = float(row.get("spend", 0))
-                if spend <= 0:
+                leads_count = parse_leads(row.get("actions"), row.get("campaign_name", ""))
+                impressions = int(row.get("impressions", 0))
+                # Пропускаем только если совсем пусто: нет ни расхода, ни показов, ни лидов
+                if spend <= 0 and impressions <= 0 and leads_count <= 0:
                     continue
 
                 rows_to_upsert.append({
@@ -212,14 +219,39 @@ def collect_insights(account_id: str, currency: str, since: str, until: str):
 # СБОР ДАННЫХ ПО МАКЕТАМ (для раздела "Библиотека креативов")
 # ============================================================
 
-def parse_leads(actions) -> int:
-    """Извлекает количество лидов из массива actions"""
+def parse_leads(actions, campaign_name: str = "") -> int:
+    """Считает 'Результат' по правилам:
+       - Если в названии кампании есть 'TD' → App promotion, берём инсталлы
+       - Иначе → Leads, берём лиды из формы FB
+    """
     if not isinstance(actions, list):
         return 0
-    for action in actions:
-        if action.get("action_type") == "lead":
-            return int(action.get("value", 0))
-    return 0
+
+    is_app_promo = "TD" in (campaign_name or "").upper()
+
+    if is_app_promo:
+        # App promotion: инсталлы. Берём максимум, т.к. FB иногда отдаёт
+        # одно и то же под разными именами (app_install / mobile_app_install / omni_app_install).
+        target_types = {"app_install", "mobile_app_install", "omni_app_install"}
+        values = []
+        for action in actions:
+            if action.get("action_type") in target_types:
+                try:
+                    values.append(int(float(action.get("value", 0))))
+                except (ValueError, TypeError):
+                    continue
+        return max(values) if values else 0
+    else:
+        # Leads: лид-формы FB. Берём 'lead' либо 'onsite_conversion.lead_grouped' (то что есть).
+        target_types = {"lead", "onsite_conversion.lead_grouped"}
+        values = []
+        for action in actions:
+            if action.get("action_type") in target_types:
+                try:
+                    values.append(int(float(action.get("value", 0))))
+                except (ValueError, TypeError):
+                    continue
+        return max(values) if values else 0
 
 
 def collect_creatives(account_id: str, currency: str, since: str, until: str):
@@ -236,10 +268,12 @@ def collect_creatives(account_id: str, currency: str, since: str, until: str):
     rows_to_upsert = []
     url = f"https://graph.facebook.com/v19.0/act_{account_id}/insights"
     params = {
-        "fields": "campaign_name,adset_name,ad_name,ad_id,spend,impressions,inline_link_clicks,reach,actions,date_start",
+        "fields": "campaign_name,adset_name,ad_name,ad_id,spend,impressions,clicks,inline_link_clicks,reach,actions,date_start",
         "time_range": f"{{'since':'{since}','until':'{until}'}}",
         "level": "ad",
         "time_increment": 1,
+        "action_attribution_windows": "['7d_click','1d_view']",
+        "use_account_attribution_setting": "true",
         "limit": 200,
         "access_token": FB_TOKEN
     }
@@ -253,7 +287,10 @@ def collect_creatives(account_id: str, currency: str, since: str, until: str):
 
             for row in resp.get("data", []):
                 spend = float(row.get("spend", 0))
-                if spend <= 0:
+                leads_count = parse_leads(row.get("actions"), row.get("campaign_name", ""))
+                impressions = int(row.get("impressions", 0))
+                # Пропускаем только если совсем пусто: нет ни расхода, ни показов, ни лидов
+                if spend <= 0 and impressions <= 0 and leads_count <= 0:
                     continue
 
                 rows_to_upsert.append({
@@ -266,10 +303,10 @@ def collect_creatives(account_id: str, currency: str, since: str, until: str):
                     "ad_id":         row.get("ad_id", ""),
                     "spend":         spend,
                     "spend_rub":     spend * vat_mult * rub_rate,
-                    "impressions":   int(row.get("impressions", 0)),
+                    "impressions":   impressions,
                     "clicks":        int(row.get("inline_link_clicks", 0)),
                     "reach":         int(row.get("reach", 0)),
-                    "leads":         parse_leads(row.get("actions")),
+                    "leads":         leads_count,
                 })
 
             url    = resp.get("paging", {}).get("next")
