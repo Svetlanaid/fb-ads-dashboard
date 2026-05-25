@@ -156,7 +156,6 @@ def collect_insights(account_id: str, currency: str, since: str, until: str):
         "level": "campaign",
         "time_increment": 1,
         "action_attribution_windows": "['7d_click','1d_view']",
-        "use_account_attribution_setting": "true",
         "limit": 500,
         "access_token": FB_TOKEN
     }
@@ -170,11 +169,11 @@ def collect_insights(account_id: str, currency: str, since: str, until: str):
 
             for row in resp.get("data", []):
                 spend = float(row.get("spend", 0))
-                leads_count = parse_leads(row.get("actions"), row.get("campaign_name", ""))
                 impressions = int(row.get("impressions", 0))
-                # Пропускаем только если совсем пусто: нет ни расхода, ни показов, ни лидов
-                if spend <= 0 and impressions <= 0 and leads_count <= 0:
+                # Если в этот день не было ни расхода, ни показов — это атрибутивный хвост старой кампании, пропускаем
+                if spend <= 0 and impressions <= 0:
                     continue
+                leads_count = parse_leads(row.get("actions"), row.get("campaign_name", ""))
 
                 rows_to_upsert.append({
                     "date_start":    row["date_start"],
@@ -273,7 +272,6 @@ def collect_creatives(account_id: str, currency: str, since: str, until: str):
         "level": "ad",
         "time_increment": 1,
         "action_attribution_windows": "['7d_click','1d_view']",
-        "use_account_attribution_setting": "true",
         "limit": 200,
         "access_token": FB_TOKEN
     }
@@ -287,11 +285,11 @@ def collect_creatives(account_id: str, currency: str, since: str, until: str):
 
             for row in resp.get("data", []):
                 spend = float(row.get("spend", 0))
-                leads_count = parse_leads(row.get("actions"), row.get("campaign_name", ""))
                 impressions = int(row.get("impressions", 0))
-                # Пропускаем только если совсем пусто: нет ни расхода, ни показов, ни лидов
-                if spend <= 0 and impressions <= 0 and leads_count <= 0:
+                # Если в этот день не было ни расхода, ни показов — это атрибутивный хвост старой кампании, пропускаем
+                if spend <= 0 and impressions <= 0:
                     continue
+                leads_count = parse_leads(row.get("actions"), row.get("campaign_name", ""))
 
                 rows_to_upsert.append({
                     "date_start":    row["date_start"],
