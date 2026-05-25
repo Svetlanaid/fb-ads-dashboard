@@ -4,7 +4,6 @@ import pandas as pd
 import plotly.express as px
 import os
 import re
-import math
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from google.oauth2 import service_account
@@ -58,10 +57,19 @@ def find_video_on_drive(creative_name):
         norm_creative = clean_for_drive(creative_name)
 
         # Получаем список папок стран внутри корневой
-        country_folders = service.files().list(
-            q=f"'{GDRIVE_COUNTRIES_ROOT_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
-            fields="files(id, name)"
-        ).execute().get('files', [])
+        country_folders = []
+        page_token = None
+        while True:
+            resp = service.files().list(
+                q=f"'{GDRIVE_COUNTRIES_ROOT_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
+                fields="nextPageToken, files(id, name)",
+                pageSize=1000,
+                pageToken=page_token
+            ).execute()
+            country_folders.extend(resp.get('files', []))
+            page_token = resp.get('nextPageToken')
+            if not page_token:
+                break
 
         for country_folder in country_folders:
             # Ищем видео рекурсивно в папке страны
@@ -74,12 +82,21 @@ def find_video_on_drive(creative_name):
         return None
 
 def search_video_in_folder(service, folder_id, norm_creative, normalize_name):
-    """Рекурсивный поиск видео в папке"""
+    """Рекурсивный поиск видео в папке с пагинацией"""
     try:
-        files = service.files().list(
-            q=f"'{folder_id}' in parents and trashed=false",
-            fields="files(id, name, mimeType)"
-        ).execute().get('files', [])
+        files = []
+        page_token = None
+        while True:
+            resp = service.files().list(
+                q=f"'{folder_id}' in parents and trashed=false",
+                fields="nextPageToken, files(id, name, mimeType)",
+                pageSize=1000,
+                pageToken=page_token
+            ).execute()
+            files.extend(resp.get('files', []))
+            page_token = resp.get('nextPageToken')
+            if not page_token:
+                break
 
         for f in files:
             if f['mimeType'] == 'application/vnd.google-apps.folder':
@@ -87,7 +104,7 @@ def search_video_in_folder(service, folder_id, norm_creative, normalize_name):
                 if result:
                     return result
             elif f['mimeType'].startswith('video/'):
-                file_name = re.sub(r'\.(mp4|mov|avi|webm|mkv)$', '', f['name'], flags=re.IGNORECASE)
+                file_name = re.sub(r'\.(mp4|mov|avi|webm|mkv|m4v).*$', '', f['name'], flags=re.IGNORECASE)
                 file_clean = re.sub(r'\.(png|jpg|jpeg).*$', '', file_name, flags=re.IGNORECASE)
                 file_clean = re.sub(r'_\d{3,}', '', file_clean)
                 file_clean = re.sub(r'\([^)]*\)', '', file_clean)
@@ -97,7 +114,8 @@ def search_video_in_folder(service, folder_id, norm_creative, normalize_name):
                 if file_clean == norm_creative:
                     return f"https://drive.google.com/file/d/{f['id']}/preview"
         return None
-    except:
+    except Exception as e:
+        print(f"Drive search error: {e}")
         return None
 
 @st.cache_data(ttl=3600)
@@ -120,16 +138,34 @@ def find_image_on_drive(creative_name):
 
         norm = clean_for_drive_img(creative_name)
 
-        country_folders = service.files().list(
-            q=f"'{GDRIVE_COUNTRIES_ROOT_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
-            fields="files(id, name)"
-        ).execute().get('files', [])
+        country_folders = []
+        page_token = None
+        while True:
+            resp = service.files().list(
+                q=f"'{GDRIVE_COUNTRIES_ROOT_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
+                fields="nextPageToken, files(id, name)",
+                pageSize=1000,
+                pageToken=page_token
+            ).execute()
+            country_folders.extend(resp.get('files', []))
+            page_token = resp.get('nextPageToken')
+            if not page_token:
+                break
 
         def search_image_in_folder(folder_id):
-            files = service.files().list(
-                q=f"'{folder_id}' in parents and trashed=false",
-                fields="files(id, name, mimeType)"
-            ).execute().get('files', [])
+            files = []
+            page_token = None
+            while True:
+                resp = service.files().list(
+                    q=f"'{folder_id}' in parents and trashed=false",
+                    fields="nextPageToken, files(id, name, mimeType)",
+                    pageSize=1000,
+                    pageToken=page_token
+                ).execute()
+                files.extend(resp.get('files', []))
+                page_token = resp.get('nextPageToken')
+                if not page_token:
+                    break
             for f in files:
                 if f['mimeType'] == 'application/vnd.google-apps.folder':
                     result = search_image_in_folder(f['id'])
@@ -819,8 +855,7 @@ try {{
                         else:
                             cards_html_c += f"""<div style="display:flex;flex-direction:column;gap:8px;{border_style}padding:{'4px' if is_leader else '0'}"><div style="width:100%;aspect-ratio:1;background:#2a2a2a;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#666;">Нет фото</div><div style="font-size:13px;color:#ccc;word-break:break-word;">{item['name']}</div></div>"""
                     full_html_c = f"""<html><head><style>body{{margin:0;padding:0;background:transparent}}</style></head><body><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:12px;font-family:sans-serif;">{cards_html_c}</div></body></html>"""
-                    rows_count_c = math.ceil(len(gallery_items_c) / 5) if gallery_items_c else 1
-                    components.html(full_html_c, height=rows_count_c * 360 + 80, scrolling=True)
+                    components.html(full_html_c, height=(len(gallery_items_c) // 5 + 1) * 260 + 50, scrolling=True)
 
             # Удалите старый блок "# Скачать все таблицы" и "# Галерея" после цикла
 
@@ -1791,8 +1826,7 @@ else:
                         else:
                             cards_html += f"""<div style="display:flex;flex-direction:column;gap:8px;{border_style}padding:{'4px' if is_leader else '0'}"><div style="width:100%;aspect-ratio:1;background:#2a2a2a;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#666;">Нет фото</div><div style="font-size:13px;color:#ccc;">{item['name']}</div></div>"""
                     full_html = f"""<html><head><style>::-webkit-scrollbar{{width:6px}}::-webkit-scrollbar-track{{background:#1e1e1e;border-radius:3px}}::-webkit-scrollbar-thumb{{background:#444;border-radius:3px}}body{{margin:0;padding:0;background:transparent}}</style></head><body><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:12px;font-family:sans-serif;">{cards_html}</div></body></html>"""
-                    rows_count = math.ceil(len(gallery_items) / 5) if gallery_items else 1
-                    components.html(full_html, height=rows_count * 360 + 80, scrolling=True)
+                    components.html(full_html, height=(len(gallery_items) // 5 + 1) * 260 + 50, scrolling=False)
 
             # Удалите весь старый блок галереи после цикла (от "# Кнопка скачать все таблицы" до конца gallery_items)
         st.stop()
