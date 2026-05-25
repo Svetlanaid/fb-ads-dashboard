@@ -1260,6 +1260,11 @@ else:
                         df_raw = load_creatives_from_db(selected_db_labels, start_date, end_date)
 
                         if df_raw is not None and not df_raw.empty:
+                            # Исключаем кампании с нулевым расходом за весь период
+                            camp_spend = df_raw.groupby('campaign_name')['spend_rub'].sum()
+                            active_camps = camp_spend[camp_spend > 0].index
+                            df_raw = df_raw[df_raw['campaign_name'].isin(active_camps)]
+
                             def normalize_adset(name):
                                 if not name: return ''
                                 name = str(name).lower().strip()
