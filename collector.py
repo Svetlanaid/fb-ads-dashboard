@@ -170,8 +170,9 @@ def collect_insights(account_id: str, currency: str, since: str, until: str):
             for row in resp.get("data", []):
                 spend = float(row.get("spend", 0))
                 impressions = int(row.get("impressions", 0))
-                # Если в этот день не было ни расхода, ни показов — это атрибутивный хвост старой кампании, пропускаем
-                if spend <= 0 and impressions <= 0:
+                clicks = int(row.get("inline_link_clicks", 0))
+                # Если в этот день не было ни расхода, ни показов, ни кликов — это атрибутивный хвост, пропускаем
+                if spend <= 0 and impressions <= 0 and clicks <= 0:
                     continue
                 leads_count = parse_leads(row.get("actions"), row.get("campaign_name", ""))
 
@@ -286,8 +287,9 @@ def collect_creatives(account_id: str, currency: str, since: str, until: str):
             for row in resp.get("data", []):
                 spend = float(row.get("spend", 0))
                 impressions = int(row.get("impressions", 0))
-                # Если в этот день не было ни расхода, ни показов — это атрибутивный хвост старой кампании, пропускаем
-                if spend <= 0 and impressions <= 0:
+                clicks = int(row.get("inline_link_clicks", 0))
+                # Если в этот день не было ни расхода, ни показов, ни кликов — это атрибутивный хвост, пропускаем
+                if spend <= 0 and impressions <= 0 and clicks <= 0:
                     continue
                 leads_count = parse_leads(row.get("actions"), row.get("campaign_name", ""))
 
