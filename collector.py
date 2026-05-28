@@ -10,6 +10,7 @@ import re
 import requests
 from datetime import datetime, timedelta
 from supabase import create_client
+from functools import lru_cache
 
 # ============================================================
 # НАСТРОЙКИ — берутся из переменных окружения (GitHub Secrets)
@@ -151,7 +152,7 @@ def collect_insights(account_id: str, currency: str, since: str, until: str):
     rows_to_upsert = []
     url = f"https://graph.facebook.com/v19.0/act_{account_id}/insights"
     params = {
-        "fields": "campaign_name,spend,impressions,clicks,inline_link_clicks,reach,actions,date_start",
+        "fields": "campaign_id,campaign_name,spend,impressions,clicks,inline_link_clicks,reach,actions,date_start",
         "time_range": f"{{'since':'{since}','until':'{until}'}}",
         "level": "campaign",
         "time_increment": 1,
@@ -171,10 +172,9 @@ def collect_insights(account_id: str, currency: str, since: str, until: str):
                 spend = float(row.get("spend", 0))
                 impressions = int(row.get("impressions", 0))
                 clicks = int(row.get("inline_link_clicks", 0))
-                # Если в этот день не было ни расхода, ни показов, ни кликов — это атрибутивный хвост, пропускаем
+                # Пропускаем строки совсем без активности
                 if spend <= 0 and impressions <= 0 and clicks <= 0:
                     continue
-                leads_count = parse_leads(row.get("actions"), row.get("campaign_name", ""))
 
                 rows_to_upsert.append({
                     "date_start":    row["date_start"],
@@ -219,39 +219,113 @@ def collect_insights(account_id: str, currency: str, since: str, until: str):
 # СБОР ДАННЫХ ПО МАКЕТАМ (для раздела "Библиотека креативов")
 # ============================================================
 
-def parse_leads(actions, campaign_name: str = "") -> int:
-    """Считает 'Результат' по правилам:
-       - Если в названии кампании есть 'TD' → App promotion, берём инсталлы
-       - Иначе → Leads, берём лиды из формы FB
+# ============================================================
+# КЭШ ЦЕЛЕЙ КАМПАНИЙ
+# ============================================================
+# Хранит для каждой campaign_id её "primary action_type" — то самое
+# событие, которое FB UI показывает в столбце "Результаты"
+_campaign_target_cache = {}
+
+
+# ============================================================
+# КЭШ ЦЕЛЕЙ ADSET'ОВ
+# ============================================================
+# Хранит для каждого adset_id его "primary action_type" — то самое
+# событие, которое FB UI показывает в столбце "Результаты"
+_adset_target_cache = {}
+
+
+def _map_goal_to_action_type(opt_goal: str, dest: str, custom_event: str) -> str:
+    """По цели adset'а возвращает ОДИН action_type (primary result)."""
+    if opt_goal == "APP_INSTALLS":
+        return "mobile_app_install"
+    elif opt_goal == "OFFSITE_CONVERSIONS" and dest == "APP":
+        mapping = {
+            "COMPLETE_REGISTRATION": "app_custom_event.fb_mobile_complete_registration",
+            "PURCHASE":              "app_custom_event.fb_mobile_purchase",
+            "ADD_TO_CART":           "app_custom_event.fb_mobile_add_to_cart",
+            "INITIATED_CHECKOUT":    "app_custom_event.fb_mobile_initiated_checkout",
+            "LEVEL_ACHIEVED":        "app_custom_event.fb_mobile_level_achieved",
+            "CONTENT_VIEW":          "app_custom_event.fb_mobile_content_view",
+            "SEARCH":                "app_custom_event.fb_mobile_search",
+            "OTHER":                 "app_custom_event.other",
+        }
+        return mapping.get(custom_event, "app_custom_event.fb_mobile_complete_registration")
+    elif opt_goal in ("LEAD_GENERATION", "QUALITY_LEAD"):
+        return "lead"
+    elif opt_goal == "OFFSITE_CONVERSIONS":
+        mapping = {
+            "LEAD":                  "offsite_conversion.fb_pixel_lead",
+            "COMPLETE_REGISTRATION": "offsite_conversion.fb_pixel_complete_registration",
+            "PURCHASE":              "offsite_conversion.fb_pixel_purchase",
+        }
+        return mapping.get(custom_event, "lead")
+    elif opt_goal == "LINK_CLICKS":
+        return "link_click"
+    elif opt_goal == "LANDING_PAGE_VIEWS":
+        return "landing_page_view"
+    else:
+        return "lead"
+
+
+def get_adset_target_action_type(adset_id: str) -> str:
+    """
+    Узнаёт у FB primary action_type для КОНКРЕТНОГО adset'а.
+    Кэшируется по adset_id, чтобы не дёргать FB на каждый день.
+    """
+    if not adset_id:
+        return "lead"
+
+    if adset_id in _adset_target_cache:
+        return _adset_target_cache[adset_id]
+
+    try:
+        url = f"https://graph.facebook.com/v19.0/{adset_id}"
+        params = {
+            "fields": "optimization_goal,destination_type,promoted_object",
+            "access_token": FB_TOKEN,
+        }
+        resp = requests.get(url, params=params, timeout=30).json()
+        if "error" in resp:
+            print(f"    ⚠️ Не удалось узнать цель adset {adset_id}: {resp['error'].get('message')}")
+            _adset_target_cache[adset_id] = "lead"
+            return "lead"
+
+        opt_goal = resp.get("optimization_goal", "")
+        dest = resp.get("destination_type", "")
+        promoted = resp.get("promoted_object") or {}
+        custom_event = promoted.get("custom_event_type", "")
+
+        action_type = _map_goal_to_action_type(opt_goal, dest, custom_event)
+        _adset_target_cache[adset_id] = action_type
+        return action_type
+
+    except Exception as e:
+        print(f"    ⚠️ Ошибка при определении цели adset {adset_id}: {e}")
+        _adset_target_cache[adset_id] = "lead"
+        return "lead"
+
+
+def parse_leads(actions, adset_id: str = "") -> int:
+    """Считает 'Результат' для строки (макет за день) по цели ЕГО adset'а.
+       Берёт ровно один action_type — тот, на который оптимизируется adset.
     """
     if not isinstance(actions, list):
         return 0
 
-    is_app_promo = "TD" in (campaign_name or "").upper()
+    target_type = get_adset_target_action_type(adset_id)
 
-    if is_app_promo:
-        # App promotion: инсталлы. Берём максимум, т.к. FB иногда отдаёт
-        # одно и то же под разными именами (app_install / mobile_app_install / omni_app_install).
-        target_types = {"app_install", "mobile_app_install", "omni_app_install"}
-        values = []
-        for action in actions:
-            if action.get("action_type") in target_types:
-                try:
-                    values.append(int(float(action.get("value", 0))))
-                except (ValueError, TypeError):
-                    continue
-        return max(values) if values else 0
-    else:
-        # Leads: лид-формы FB. Берём 'lead' либо 'onsite_conversion.lead_grouped' (то что есть).
-        target_types = {"lead", "onsite_conversion.lead_grouped"}
-        values = []
-        for action in actions:
-            if action.get("action_type") in target_types:
-                try:
-                    values.append(int(float(action.get("value", 0))))
-                except (ValueError, TypeError):
-                    continue
-        return max(values) if values else 0
+    # Берём значение именно этого типа (максимум, если их несколько записей)
+    best = 0
+    for action in actions:
+        if action.get("action_type", "") == target_type:
+            try:
+                val = int(float(action.get("value", 0)))
+            except (ValueError, TypeError):
+                continue
+            if val > best:
+                best = val
+    return best
 
 
 def collect_creatives(account_id: str, currency: str, since: str, until: str):
@@ -268,7 +342,7 @@ def collect_creatives(account_id: str, currency: str, since: str, until: str):
     rows_to_upsert = []
     url = f"https://graph.facebook.com/v19.0/act_{account_id}/insights"
     params = {
-        "fields": "campaign_name,adset_name,ad_name,ad_id,spend,impressions,clicks,inline_link_clicks,reach,actions,date_start",
+        "fields": "campaign_id,campaign_name,adset_id,adset_name,ad_name,ad_id,spend,impressions,clicks,inline_link_clicks,reach,actions,date_start",
         "time_range": f"{{'since':'{since}','until':'{until}'}}",
         "level": "ad",
         "time_increment": 1,
@@ -288,10 +362,14 @@ def collect_creatives(account_id: str, currency: str, since: str, until: str):
                 spend = float(row.get("spend", 0))
                 impressions = int(row.get("impressions", 0))
                 clicks = int(row.get("inline_link_clicks", 0))
-                # Если в этот день не было ни расхода, ни показов, ни кликов — это атрибутивный хвост, пропускаем
-                if spend <= 0 and impressions <= 0 and clicks <= 0:
+                leads_count = parse_leads(
+                    row.get("actions"),
+                    row.get("adset_id", ""),
+                )
+                # Пропускаем только строки совсем без активности
+                # (атрибуционные хвосты с лидами оставляем — они учтены в FB UI)
+                if spend <= 0 and impressions <= 0 and clicks <= 0 and leads_count <= 0:
                     continue
-                leads_count = parse_leads(row.get("actions"), row.get("campaign_name", ""))
 
                 rows_to_upsert.append({
                     "date_start":    row["date_start"],
@@ -366,7 +444,6 @@ def main():
         # Пропускаем аккаунты не из нашего списка
         if acc_id not in VAT_MAP:
             continue
-
         print(f"\n🔄 Аккаунт: {acc_id} ({ACCOUNT_LABELS.get(acc_id, '?')})")
 
         try:
