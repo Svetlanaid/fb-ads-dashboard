@@ -898,16 +898,18 @@ def load_insights_from_db(labels, start_date, end_date):
 
 @st.cache_data(ttl=1800)
 def load_reach_from_db(labels):
-    """Читает охват за последние 35 дней из fb_reach_period"""
     try:
         resp = supabase.table("fb_reach_period")\
-            .select("country_label,campaign_name,reach")\
+            .select("country_label,campaign_name,reach,period_days,period_until")\
             .in_("country_label", list(labels))\
-            .eq("period_days", 36)\
-            .execute()  # period_days = (35 дней назад → сегодня включительно) = 36
+            .order("period_until", desc=True)\
+            .execute()
         if not resp.data:
             return None
-        return pd.DataFrame(resp.data)
+        df = pd.DataFrame(resp.data)
+        # Берём последнюю запись для каждой кампании
+        df = df.drop_duplicates(subset=['country_label', 'campaign_name'], keep='first')
+        return df
     except Exception as e:
         st.error(f"Ошибка загрузки охвата: {e}")
         return None
