@@ -897,6 +897,22 @@ def load_insights_from_db(labels, start_date, end_date):
         return None
 
 @st.cache_data(ttl=1800)
+def load_reach_from_db(labels):
+    """Читает охват за последние 35 дней из fb_reach_period"""
+    try:
+        resp = supabase.table("fb_reach_period")\
+            .select("country_label,campaign_name,reach")\
+            .in_("country_label", list(labels))\
+            .eq("period_days", 36)\
+            .execute()  # period_days = (35 дней назад → сегодня включительно) = 36
+        if not resp.data:
+            return None
+        return pd.DataFrame(resp.data)
+    except Exception as e:
+        st.error(f"Ошибка загрузки охвата: {e}")
+        return None
+
+@st.cache_data(ttl=1800)
 def load_creatives_from_db(labels, start_date, end_date):
     """Читает данные по макетам из Supabase с пагинацией (обход лимита 1000)"""
     try:
@@ -1903,8 +1919,18 @@ else:
             'Затраты с НДС (RUB)': 'sum',
             'Показы': 'sum',
             'Клики': 'sum',
-            'Охват': 'sum'
         }).reset_index()
+
+        # Охват — отдельной таблицей, БЕЗ суммирования по дням
+        df_reach = load_reach_from_db(selected_db_labels)
+        if df_reach is not None and not df_reach.empty:
+            df_reach['campaign_clean'] = df_reach['campaign_name'].apply(clean_campaign_name)
+            reach_agg = df_reach.groupby(['country_label', 'campaign_clean'])['reach'].sum().reset_index()
+            reach_agg = reach_agg.rename(columns={'country_label': 'Страна', 'campaign_clean': 'Название кампании', 'reach': 'Охват'})
+            df_totals = df_totals.merge(reach_agg, on=['Страна', 'Название кампании'], how='left')
+            df_totals['Охват'] = df_totals['Охват'].fillna(0).astype(int)
+        else:
+            df_totals['Охват'] = 0
 
         all_campaigns = sorted(df_totals['Название кампании'].unique().tolist())
 
