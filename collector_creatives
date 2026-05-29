@@ -1,0 +1,148 @@
+"""
+collector_creatives.py — Ручной сбор макетов по всем аккаунтам.
+Запускается: python collector_creatives.py
+"""
+
+import time
+from datetime import datetime, timedelta
+
+# Берём готовые функции и константы из collector.py
+from collector import (
+    VAT_MAP,
+    ACCOUNT_LABELS,
+    get_all_account_ids,
+    get_rub_rate,
+    parse_leads,
+    supabase,
+    FB_TOKEN,
+    log_sync,
+)
+import requests
+
+
+def collect_creatives_safe(account_id: str, currency: str, since: str, until: str):
+    """
+    Сбор макетов с ретраями на rate limit.
+    Если FB бьёт лимит — ждёт и продолжает с той же страницы,
+    а не обрывает молча как старый collect_creatives.
+    """
+    vat_mult = VAT_MAP.get(account_id, 1.0)
+    label    = ACCOUNT_LABELS.get(account_id, account_id)
+    rub_rate = get_rub_rate(currency)
+
+    print(f"  🖼️  Макеты: {label} ({account_id})")
+
+    rows_to_upsert = []
+    url = f"https://graph.facebook.com/v19.0/act_{account_id}/insights"
+    params = {
+        "fields": "campaign_id,campaign_name,adset_id,adset_name,ad_name,ad_id,spend,impressions,clicks,inline_link_clicks,reach,actions,date_start",
+        "time_range": f"{{'since':'{since}','until':'{until}'}}",
+        "level": "ad",
+        "time_increment": 1,
+        "action_attribution_windows": "['7d_click','1d_view']",
+        "limit": 200,
+        "access_token": FB_TOKEN,
+    }
+
+    page_num = 0
+    while url:
+        resp = requests.get(url, params=params, timeout=120).json()
+
+        if "error" in resp:
+            err = resp["error"]
+            code = err.get("code")
+            # rate limit / временные сбои → ждём и повторяем ТУ ЖЕ страницу
+            if code in (17, 80000, 80004, 4, 1, 2) or err.get("is_transient"):
+                print(f"    ⏳ FB лимит (code {code}), ждём 90с и повторяем стр.{page_num}...")
+                time.sleep(90)
+                continue
+            # настоящая ошибка → стоп с raise (не молчим, не ставим 'ok')
+            raise RuntimeError(f"FB error: {err.get('message')} (code {code})")
+
+        for row in resp.get("data", []):
+            spend = float(row.get("spend", 0))
+            impressions = int(row.get("impressions", 0))
+            clicks = int(row.get("inline_link_clicks", 0))
+            leads_count = parse_leads(row.get("actions"), row.get("adset_id", ""))
+            if spend <= 0 and impressions <= 0 and clicks <= 0 and leads_count <= 0:
+                continue
+
+            rows_to_upsert.append({
+                "date_start":    row["date_start"],
+                "account_id":    account_id,
+                "country_label": label,
+                "campaign_name": row.get("campaign_name", ""),
+                "adset_name":    row.get("adset_name", ""),
+                "ad_name":       row.get("ad_name", ""),
+                "ad_id":         row.get("ad_id", ""),
+                "spend":         spend,
+                "spend_rub":     spend * vat_mult * rub_rate,
+                "impressions":   impressions,
+                "clicks":        clicks,
+                "reach":         int(row.get("reach", 0)),
+                "leads":         leads_count,
+            })
+
+        page_num += 1
+        url    = resp.get("paging", {}).get("next")
+        params = {}
+
+    # Сохраняем в Supabase
+    if rows_to_upsert:
+        batch_size = 500
+        for i in range(0, len(rows_to_upsert), batch_size):
+            batch = rows_to_upsert[i:i + batch_size]
+            supabase.table("fb_ads_creatives").upsert(
+                batch,
+                on_conflict="date_start,account_id,ad_id"
+            ).execute()
+        print(f"    ✅ Сохранено: {len(rows_to_upsert)} строк (стр.: {page_num})")
+    else:
+        print(f"    ℹ️ Пусто")
+
+
+def main():
+    started_at = datetime.now()
+    print(f"\n{'='*60}")
+    print(f"🖼️  Ручной сбор МАКЕТОВ: {started_at.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"{'='*60}")
+
+    until = datetime.now().strftime("%Y-%m-%d")
+    since = (datetime.now() - timedelta(days=35)).strftime("%Y-%m-%d")
+    print(f"📅 Период: {since} → {until}\n")
+
+    accounts = get_all_account_ids()
+    if not accounts:
+        print("❌ Нет аккаунтов")
+        log_sync(started_at, "error", "creatives: нет аккаунтов")
+        return
+
+    errors = []
+    ok_count = 0
+    for acc in accounts:
+        acc_id   = acc["id"]
+        currency = acc["currency"]
+        if acc_id not in VAT_MAP:
+            continue
+        print(f"\n🔄 {ACCOUNT_LABELS.get(acc_id, acc_id)}")
+        try:
+            collect_creatives_safe(acc_id, currency, since, until)
+            ok_count += 1
+        except Exception as e:
+            errors.append(f"{acc_id}: {e}")
+            print(f"  ❌ {e}")
+
+    print(f"\n{'='*60}")
+    if errors:
+        msg = f"creatives partial ({ok_count} ок, {len(errors)} ошибок): {'; '.join(errors[:3])}"
+        print(f"⚠️ {msg}")
+        log_sync(started_at, "partial", msg)
+    else:
+        msg = f"creatives ok: {ok_count} аккаунтов"
+        print(f"✅ {msg}")
+        log_sync(started_at, "ok", msg)
+    print(f"{'='*60}\n")
+
+
+if __name__ == "__main__":
+    main()
