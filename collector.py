@@ -469,9 +469,9 @@ def main():
     print(f"🚀 Запуск сбора данных: {started_at.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*60}")
 
-    # Период: последние 35 дней (с запасом чтобы не терять данные)
-    until = datetime.now().strftime("%Y-%m-%d")
-    since = (datetime.now() - timedelta(days=35)).strftime("%Y-%m-%d")
+    yesterday = datetime.now() - timedelta(days=1)
+    until = yesterday.strftime("%Y-%m-%d")
+    since = (datetime.now() - timedelta(days=36)).strftime("%Y-%m-%d")
     print(f"📅 Период: {since} → {until}\n")
 
     # Получаем все аккаунты
