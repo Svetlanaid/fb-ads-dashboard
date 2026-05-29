@@ -172,9 +172,6 @@ def collect_insights(account_id: str, currency: str, since: str, until: str):
                 spend = float(row.get("spend", 0))
                 impressions = int(row.get("impressions", 0))
                 clicks = int(row.get("inline_link_clicks", 0))
-                # Пропускаем строки совсем без активности
-                if spend <= 0 and impressions <= 0 and clicks <= 0:
-                    continue
 
                 rows_to_upsert.append({
                     "date_start":    row["date_start"],
@@ -213,7 +210,58 @@ def collect_insights(account_id: str, currency: str, since: str, until: str):
             print(f"    ❌ Ошибка сохранения в Supabase: {e}")
     else:
         print(f"    ℹ️ Нет данных для сохранения")
+def collect_reach(account_id: str, since: str, until: str):
+    """
+    Считает охват кампаний за весь период одним запросом
+    (без time_increment) и пишет в fb_reach_period.
+    Охват по дням НЕ суммируется — это уникальные люди за период.
+    """
+    label = ACCOUNT_LABELS.get(account_id, account_id)
+    period_days = (datetime.strptime(until, "%Y-%m-%d") - datetime.strptime(since, "%Y-%m-%d")).days + 1
 
+    print(f"  👥 Охват: {label} ({account_id}) за {period_days} дн")
+
+    rows_to_upsert = []
+    url = f"https://graph.facebook.com/v19.0/act_{account_id}/insights"
+    params = {
+        "fields": "campaign_name,reach",
+        "time_range": f"{{'since':'{since}','until':'{until}'}}",
+        "level": "campaign",
+        # БЕЗ time_increment — один результат на кампанию за весь период
+        "limit": 500,
+        "access_token": FB_TOKEN,
+    }
+
+    try:
+        while url:
+            resp = requests.get(url, params=params, timeout=120).json()
+            if "error" in resp:
+                print(f"    ⚠️ Ошибка reach: {resp['error'].get('message')}")
+                return
+            for row in resp.get("data", []):
+                rows_to_upsert.append({
+                    "account_id":    account_id,
+                    "country_label": label,
+                    "campaign_name": row.get("campaign_name", ""),
+                    "period_days":   period_days,
+                    "period_until":  until,
+                    "reach":         int(row.get("reach", 0)),
+                })
+            url    = resp.get("paging", {}).get("next")
+            params = {}
+    except Exception as e:
+        print(f"    ❌ Ошибка при сборе reach: {e}")
+        return
+
+    if rows_to_upsert:
+        try:
+            supabase.table("fb_reach_period").upsert(
+                rows_to_upsert,
+                on_conflict="account_id,campaign_name,period_days"
+            ).execute()
+            print(f"    ✅ Охват сохранён: {len(rows_to_upsert)} кампаний")
+        except Exception as e:
+            print(f"    ❌ Ошибка сохранения reach: {e}")
 
 # ============================================================
 # СБОР ДАННЫХ ПО МАКЕТАМ (для раздела "Библиотека креативов")
@@ -451,6 +499,13 @@ def main():
         except Exception as e:
             errors.append(f"insights {acc_id}: {e}")
             print(f"  ❌ Ошибка insights: {e}")
+
+        try:
+            collect_reach(acc_id, since, until)
+        except Exception as e:
+            errors.append(f"reach {acc_id}: {e}")
+            print(f"  ❌ Ошибка reach: {e}")
+
 
     # Итог
     print(f"\n{'='*60}")
