@@ -1817,20 +1817,24 @@ else:
                                 if raw_fallback:
                                     img_url = re.sub(r'stp=[^&]*&?', '', raw_fallback).rstrip('?&') or None
                             if is_video_creative and not video_src:
-                                with st.empty():
-                                    drive_url = find_video_on_drive(row['ad_name'])
+                                drive_url = find_video_on_drive(row['ad_name'])
+                                if not drive_url:
+                                    drive_url = find_video_on_drive(row['Макет'])
                                 if drive_url:
                                     video_src = drive_url
                                 else:
-                                    with st.empty():
-                                        img_from_drive = find_image_on_drive(row['ad_name'])
+                                    img_from_drive = find_image_on_drive(row['ad_name'])
+                                    if not img_from_drive:
+                                        img_from_drive = find_image_on_drive(row['Макет'])
                                     if img_from_drive and not img_url:
                                         img_url = img_from_drive
                             # Финальный fallback — ищем фото на Drive даже если не видео
                             if not img_url:
-                                with st.empty():
-                                    img_from_drive = find_image_on_drive(row['ad_name'])
+                                img_from_drive = find_image_on_drive(row['ad_name'])
+                                if not img_from_drive:
+                                    img_from_drive = find_image_on_drive(row['Макет'])
                                 if img_from_drive:
+                                    img_url = img_from_drive
                                     img_url = img_from_drive
                             gallery_items.append({'name': row['Макет'], 'img_url': img_url, 'is_video': is_video_creative, 'video_src': video_src})
                         except Exception as e:
