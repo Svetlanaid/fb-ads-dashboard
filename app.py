@@ -1729,7 +1729,7 @@ else:
                     st.write(f"#### Галерея: {camp_name}")
                     # Сохраняем порядок как в таблице
                     table_order = list(full_table[camp_name].values[:-1])  # без ИТОГО
-                    td = df_c.groupby('Макет').agg({'ad_id': 'first'}).reset_index()
+                    td = df_c.groupby('Макет').agg({'ad_id': 'first', 'ad_name': 'first'}).reset_index()
                     td['_order'] = td['Макет'].apply(lambda x: table_order.index(x) if x in table_order else 9999)
                     td = td.sort_values('_order').drop(columns=['_order']).reset_index(drop=True)
                     gallery_items = []
@@ -1818,18 +1818,18 @@ else:
                                     img_url = re.sub(r'stp=[^&]*&?', '', raw_fallback).rstrip('?&') or None
                             if is_video_creative and not video_src:
                                 with st.empty():
-                                    drive_url = find_video_on_drive(row['Макет'])
+                                    drive_url = find_video_on_drive(row['ad_name'])
                                 if drive_url:
                                     video_src = drive_url
                                 else:
                                     with st.empty():
-                                        img_from_drive = find_image_on_drive(row['Макет'])
+                                        img_from_drive = find_image_on_drive(row['ad_name'])
                                     if img_from_drive and not img_url:
                                         img_url = img_from_drive
                             # Финальный fallback — ищем фото на Drive даже если не видео
                             if not img_url:
                                 with st.empty():
-                                    img_from_drive = find_image_on_drive(row['Макет'])
+                                    img_from_drive = find_image_on_drive(row['ad_name'])
                                 if img_from_drive:
                                     img_url = img_from_drive
                             gallery_items.append({'name': row['Макет'], 'img_url': img_url, 'is_video': is_video_creative, 'video_src': video_src})
