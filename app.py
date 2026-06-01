@@ -31,18 +31,12 @@ def get_drive_service():
     except Exception as e:
         return None
 
-@st.cache_data(ttl=3600)
-def find_video_on_drive(creative_name):
+def find_video_on_drive(creative_name, country_code=None):
     """Ищет видео на Google Drive по названию макета"""
     try:
         service = get_drive_service()
         if not service:
             return None
-
-        def normalize_name(s):
-            s = str(s or "").lower().strip()
-            s = re.sub(r'\s+', ' ', s)
-            return s
 
         def clean_for_drive(name):
             name = str(name or "").lower().strip()
@@ -56,7 +50,6 @@ def find_video_on_drive(creative_name):
 
         norm_creative = clean_for_drive(creative_name)
 
-        # Получаем список папок стран внутри корневой
         country_folders = []
         page_token = None
         while True:
@@ -71,15 +64,27 @@ def find_video_on_drive(creative_name):
             if not page_token:
                 break
 
+        # Фильтруем по коду страны если передан
+        if country_code:
+            country_folders = [f for f in country_folders if f['name'].upper() == country_code.upper()]
+
+        def normalize_name(s):
+            s = str(s or "").lower().strip()
+            s = re.sub(r'\s+', ' ', s)
+            return s
+
         for country_folder in country_folders:
-            # Ищем видео рекурсивно в папке страны
             result = search_video_in_folder(service, country_folder['id'], norm_creative, normalize_name)
             if result:
                 return result
+        return None
+    except Exception as e:
+        return None
 
         return None
     except Exception as e:
         return None
+
 
 def search_video_in_folder(service, folder_id, norm_creative, normalize_name):
     """Рекурсивный поиск видео в папке с пагинацией"""
@@ -118,8 +123,7 @@ def search_video_in_folder(service, folder_id, norm_creative, normalize_name):
         print(f"Drive search error: {e}")
         return None
 
-@st.cache_data(ttl=3600)
-def find_image_on_drive(creative_name):
+def find_image_on_drive(creative_name, country_code=None):
     """Ищет фото на Google Drive если видео не найдено"""
     try:
         service = get_drive_service()
@@ -181,6 +185,9 @@ def find_image_on_drive(creative_name):
                     if fname == norm:
                         return f"https://drive.google.com/uc?id={f['id']}"
             return None
+
+        if country_code:
+            country_folders = [f for f in country_folders if f['name'].upper() == country_code.upper()]
 
         for folder in country_folders:
             result = search_image_in_folder(folder['id'])
@@ -746,6 +753,7 @@ try {{
                             except:
                                 pass
 
+                    camp_country_code_c = camp_name_c.strip()[:2].upper() if camp_name_c else None
                     top3_gallery_c = top3_c
 
                     import json as json_lib
@@ -818,18 +826,18 @@ try {{
                                     if thumb: img_url = re.sub(r'stp=[^&]*&?', '', thumb).rstrip('?&') or None
                             if is_video_creative and not video_src:
                                 with st.empty():
-                                    drive_url = find_video_on_drive(ad_name)
+                                    drive_url = find_video_on_drive(ad_name, country_code=camp_country_code_c)
                                 if drive_url:
                                     video_src = drive_url
                                 else:
                                     with st.empty():
-                                        img_from_drive = find_image_on_drive(ad_name)
+                                        img_from_drive = find_image_on_drive(ad_name, country_code=camp_country_code_c)
                                     if img_from_drive and not img_url:
                                         img_url = img_from_drive
                             # Финальный fallback — ищем фото на Drive даже если не видео
                             if not img_url:
                                 with st.empty():
-                                    img_from_drive = find_image_on_drive(ad_name)
+                                    img_from_drive = find_image_on_drive(ad_name, country_code=camp_country_code_c)
                                 if img_from_drive:
                                     img_url = img_from_drive
                             gallery_items_c.append({'name': display_name, 'img_url': img_url, 'is_video': is_video_creative, 'video_src': video_src})
@@ -1729,6 +1737,7 @@ else:
                     st.write(f"#### Галерея: {camp_name}")
                     # Сохраняем порядок как в таблице
                     table_order = list(full_table[camp_name].values[:-1])  # без ИТОГО
+                    camp_country_code = camp_name.strip()[:2].upper() if camp_name else None
                     td = df_c.groupby('Макет').agg({'ad_id': 'first', 'ad_name': 'first'}).reset_index()
                     td['_order'] = td['Макет'].apply(lambda x: table_order.index(x) if x in table_order else 9999)
                     td = td.sort_values('_order').drop(columns=['_order']).reset_index(drop=True)
@@ -1816,23 +1825,24 @@ else:
                                 raw_fallback = creative_data.get('image_url') or creative_data.get('thumbnail_url') or ''
                                 if raw_fallback:
                                     img_url = re.sub(r'stp=[^&]*&?', '', raw_fallback).rstrip('?&') or None
+                        
                             if is_video_creative and not video_src:
-                                drive_url = find_video_on_drive(row['ad_name'])
+                                drive_url = find_video_on_drive(row['ad_name'], country_code=camp_country_code)
                                 if not drive_url:
                                     drive_url = find_video_on_drive(row['Макет'])
                                 if drive_url:
                                     video_src = drive_url
                                 else:
-                                    img_from_drive = find_image_on_drive(row['ad_name'])
+                                    img_from_drive = find_image_on_drive(row['ad_name'], country_code=camp_country_code)
                                     if not img_from_drive:
-                                        img_from_drive = find_image_on_drive(row['Макет'])
+                                        img_from_drive = find_image_on_drive(row['Макет'], country_code=camp_country_code)
                                     if img_from_drive and not img_url:
                                         img_url = img_from_drive
                             # Финальный fallback — ищем фото на Drive даже если не видео
                             if not img_url:
-                                img_from_drive = find_image_on_drive(row['ad_name'])
+                                img_from_drive = find_image_on_drive(row['ad_name'], country_code=camp_country_code)
                                 if not img_from_drive:
-                                    img_from_drive = find_image_on_drive(row['Макет'])
+                                    img_from_drive = find_image_on_drive(row['Макет'], country_code=camp_country_code)
                                 if img_from_drive:
                                     img_url = img_from_drive
                                     img_url = img_from_drive
