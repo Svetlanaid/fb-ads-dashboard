@@ -69,6 +69,7 @@ ACCOUNT_LABELS = {
     "2727239577416075":  "Maxim Thailand",
     "2295720397582070":  "Tanzania",
     "351994210156217":   "Tanzania",
+    "1236647761876144":   "Tanzania GMT",
     "2050316328716958":  "Maxim Philippines",
     "1052629215643734":  "Maxim Philippines",
     "830039013207696":   "Maxim South Africa",
