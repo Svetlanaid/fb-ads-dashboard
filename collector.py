@@ -500,19 +500,6 @@ def main():
             errors.append(f"insights {acc_id}: {e}")
             print(f"  ❌ Ошибка insights: {e}")
 
-        try:
-            collect_reach(acc_id, since, until)
-        except Exception as e:
-            errors.append(f"reach {acc_id}: {e}")
-            print(f"  ❌ Ошибка reach: {e}")
-
-        try:
-            collect_creatives(acc_id, currency, since, until)
-        except Exception as e:
-            errors.append(f"creatives {acc_id}: {e}")
-            print(f"  ❌ Ошибка creatives: {e}")
-
-
     # Итог
     print(f"\n{'='*60}")
     if errors:
