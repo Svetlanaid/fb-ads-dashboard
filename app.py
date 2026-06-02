@@ -1189,6 +1189,7 @@ else:
         "Vietnam": "Maxim Vietnam",
         "South Africa ZA": "Maxim South Africa",
         "TH": "Maxim Dominican Republic",
+        "Tanzania GMT": "Tanzania GMT",
     }
     merged_accounts = {ACCOUNT_DISPLAY_NAMES.get(k, k): v for k, v in merged_accounts.items()}
 
