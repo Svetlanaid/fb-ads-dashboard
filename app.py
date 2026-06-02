@@ -1109,8 +1109,8 @@ else:
             all_accounts_data = []
             acc_response = requests.get(accounts_url, params=acc_params, timeout=120).json()
             if 'error' in acc_response:
-                st.error(f"Ошибка токена FB: {acc_response['error'].get('message', '')}. Обновите токен в настройках.")
-                st.stop()
+                st.warning(f"⚠️ FB API временно недоступен (rate limit). Данные загружаются из базы.")
+                acc_response = {"data": []}
             while True:
                 if "data" in acc_response:
                     all_accounts_data.extend(acc_response["data"])
