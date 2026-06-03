@@ -543,9 +543,10 @@ if main_tab == "Клиенты":
                     except:
                         return str(val) if val is not None else ''
 
+                country_code_c = camp_name_c.strip()[:2].upper()
                 html_rows_c = []
                 header_c = ''.join([f'<th style="padding:6px 10px;text-align:left;border:1px solid var(--border-color);background:var(--header-bg);color:var(--text-color);font-weight:bold;white-space:nowrap;">{d}</th>' for d in cols_c_display])
-                html_rows_c.append(f'<tr>{header_c}</tr>')
+                html_rows_c.append(f'<tr><th class="col-country-c" style="display:none;">Страна</th>{header_c}</tr>')
 
                 for _, r in full_c[cols_c].iterrows():
                     nv = str(r[camp_name_c])
@@ -565,7 +566,7 @@ if main_tab == "Клиенты":
                         val = fmt_c(c, r[c])
                         align = 'left' if c in [camp_name_c, 'Список городов'] else 'right'
                         cells += f'<td style="padding:5px 10px;border:1px solid var(--border-color);color:var(--text-color);text-align:{align};white-space:nowrap;">{val}</td>'
-                    html_rows_c.append(f'<tr data-rowtype="{row_type}" style="{row_style}">{cells}</tr>')
+                    html_rows_c.append(f'<tr data-rowtype="{row_type}" style="{row_style}"><td class="col-country-c" style="display:none;">{country_code_c}</td>{cells}</tr>')
 
                 all_tables_html_c.append((camp_name_c, ''.join(html_rows_c)))
 
@@ -674,7 +675,34 @@ try {{
                 }}
                 function copyTableBunker2C() {{
                   var clone = buildCleanCloneC(['Заказы', 'Цена за заказ', 'Регистрации', 'Цена за регистрацию', 'Города', 'IPM']);
-                  var blob = new Blob([clone.outerHTML], {{type: 'text/html'}});
+                  // Показываем скрытую колонку страны
+                  clone.querySelectorAll('.col-country-c').forEach(function(el) {{
+                    el.style.display = '';
+                    el.style.border = '1px solid #ccc';
+                    el.style.color = '#000';
+                    el.style.background = '#fff';
+                    el.style.padding = '5px 10px';
+                  }});
+                  // Убираем шапку и ИТОГО
+                  var rows = clone.querySelectorAll('tr');
+                  var filteredHtml = '';
+                  rows.forEach(function(row) {{
+                    var rowType = row.getAttribute('data-rowtype');
+                    if (rowType === 'itogo') return;
+                    if (!rowType) return;
+                    row.querySelectorAll('td').forEach(function(td) {{
+                      td.style.border = '1px solid #ccc';
+                      td.style.color = '#000';
+                      td.style.background = rowType === 'top3' ? '#d7ead9' : '#fff';
+                    }});
+                    filteredHtml += row.outerHTML;
+                  }});
+                  var table = document.createElement('table');
+                  table.style.borderCollapse = 'collapse';
+                  table.style.fontFamily = 'sans-serif';
+                  table.style.fontSize = '13px';
+                  table.innerHTML = filteredHtml;
+                  var blob = new Blob([table.outerHTML], {{type: 'text/html'}});
                   navigator.clipboard.write([new ClipboardItem({{'text/html': blob}})]).then(function() {{
                     var btn = document.getElementById('btnCopyBunker2C_{camp_name_c}');
                     btn.innerText = '✅ Скопировано';
@@ -1638,8 +1666,10 @@ else:
                 }
                 html_rows = []
                 # Шапка
+                # Определяем код страны из названия кампании (первые 2 буквы)
+                country_code = camp_name.strip()[:2].upper()
                 header_cells = ''.join([f'<th style="padding:6px 10px;text-align:left;border:1px solid var(--border-color);background:var(--header-bg);color:var(--text-color);font-weight:bold;white-space:nowrap;">{COL_DISPLAY_NAMES.get(c, c)}</th>' for c in cols_to_show])
-                html_rows.append(f'<tr>{header_cells}</tr>')
+                html_rows.append(f'<tr><th class="col-country" style="display:none;">Страна</th>{header_cells}</tr>')
 
                 for _, r in full_table[cols_to_show].iterrows():
                     name_val = str(r[camp_name])
@@ -1661,7 +1691,7 @@ else:
                         val = fmt_val(c, r[c])
                         align = 'left' if c == camp_name or c == 'Список городов' else 'right'
                         cells += f'<td style="padding:5px 10px;border:1px solid var(--border-color);color:var(--text-color);text-align:{align};white-space:nowrap;">{val}</td>'
-                    html_rows.append(f'<tr data-rowtype="{row_type}" style="{row_style}">{cells}</tr>')
+                    html_rows.append(f'<tr data-rowtype="{row_type}" style="{row_style}"><td class="col-country" style="display:none;">{country_code}</td>{cells}</tr>')
 
                 all_tables_html.append((camp_name, ''.join(html_rows)))
 
@@ -1753,7 +1783,34 @@ else:
                 }}
                 function copyTableBunker2() {{
                   var clone = buildClone(['LPM', 'Города']);
-                  var blob = new Blob([clone.outerHTML], {{type: 'text/html'}});
+                  // Показываем скрытую колонку страны
+                  clone.querySelectorAll('.col-country').forEach(function(el) {{
+                    el.style.display = '';
+                    el.style.border = '1px solid #ccc';
+                    el.style.color = '#000';
+                    el.style.background = '#fff';
+                    el.style.padding = '5px 10px';
+                  }});
+                  // Убираем шапку и ИТОГО
+                  var rows = clone.querySelectorAll('tr');
+                  var filteredHtml = '';
+                  rows.forEach(function(row) {{
+                    var rowType = row.getAttribute('data-rowtype');
+                    if (rowType === 'itogo') return;
+                    if (!rowType) return;
+                    row.querySelectorAll('td').forEach(function(td) {{
+                      td.style.border = '1px solid #ccc';
+                      td.style.color = '#000';
+                      td.style.background = rowType === 'top3' ? '#d7ead9' : '#fff';
+                    }});
+                    filteredHtml += row.outerHTML;
+                  }});
+                  var table = document.createElement('table');
+                  table.style.borderCollapse = 'collapse';
+                  table.style.fontFamily = 'sans-serif';
+                  table.style.fontSize = '13px';
+                  table.innerHTML = filteredHtml;
+                  var blob = new Blob([table.outerHTML], {{type: 'text/html'}});
                   navigator.clipboard.write([new ClipboardItem({{'text/html': blob}})]).then(function() {{
                     var btn = document.getElementById('btnBunker2_{camp_name}');
                     btn.innerText = '✅ Скопировано';
