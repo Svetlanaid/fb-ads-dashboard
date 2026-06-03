@@ -546,7 +546,7 @@ if main_tab == "Клиенты":
                 country_code_c = camp_name_c.strip()[:2].upper()
                 html_rows_c = []
                 header_c = ''.join([f'<th style="padding:6px 10px;text-align:left;border:1px solid var(--border-color);background:var(--header-bg);color:var(--text-color);font-weight:bold;white-space:nowrap;">{d}</th>' for d in cols_c_display])
-                html_rows_c.append(f'<tr><th class="col-country-c" style="display:none;">Страна</th>{header_c}</tr>')
+                html_rows_c.append(f'<tr><th class="col-country-c" style="display:none;">Страна</th><th class="col-campname-c" style="display:none;">Кампания</th>{header_c}</tr>')
 
                 for _, r in full_c[cols_c].iterrows():
                     nv = str(r[camp_name_c])
@@ -566,7 +566,7 @@ if main_tab == "Клиенты":
                         val = fmt_c(c, r[c])
                         align = 'left' if c in [camp_name_c, 'Список городов'] else 'right'
                         cells += f'<td style="padding:5px 10px;border:1px solid var(--border-color);color:var(--text-color);text-align:{align};white-space:nowrap;">{val}</td>'
-                    html_rows_c.append(f'<tr data-rowtype="{row_type}" style="{row_style}"><td class="col-country-c" style="display:none;">{country_code_c}</td>{cells}</tr>')
+                    html_rows_c.append(f'<tr data-rowtype="{row_type}" style="{row_style}"><td class="col-country-c" style="display:none;">{country_code_c}</td><td class="col-campname-c" style="display:none;">{camp_name_c}</td>{cells}</tr>')
 
                 all_tables_html_c.append((camp_name_c, ''.join(html_rows_c)))
 
@@ -674,34 +674,52 @@ try {{
                   }}).catch(function(e) {{ alert('Ошибка: ' + e); }});
                 }}
                 function copyTableBunker2C() {{
-                  var clone = buildCleanCloneC(['Заказы', 'Цена за заказ', 'Регистрации', 'Цена за регистрацию', 'Города', 'IPM']);
-                  // Показываем скрытую колонку страны
-                  clone.querySelectorAll('.col-country-c').forEach(function(el) {{
-                    el.style.display = '';
-                    el.style.border = '1px solid #ccc';
-                    el.style.color = '#000';
-                    el.style.background = '#fff';
-                    el.style.padding = '5px 10px';
-                  }});
-                  // Убираем шапку и ИТОГО
-                  var rows = clone.querySelectorAll('tr');
-                  var filteredHtml = '';
-                  rows.forEach(function(row) {{
-                    var rowType = row.getAttribute('data-rowtype');
-                    if (rowType === 'itogo') return;
-                    if (!rowType) return;
-                    row.querySelectorAll('td').forEach(function(td) {{
-                      td.style.border = '1px solid #ccc';
-                      td.style.color = '#000';
-                      td.style.background = rowType === 'top3' ? '#d7ead9' : '#fff';
-                    }});
-                    filteredHtml += row.outerHTML;
-                  }});
+                  var orig = document.getElementById('tbl_c_{camp_name_c}');
+                  var headers = orig.querySelectorAll('tr')[0].querySelectorAll('th');
+                  var colMap = {{}};
+                  headers.forEach(function(th, i) {{ colMap[th.innerText.trim()] = i; }});
+                  var wantedCols = [
+                    'Страна',
+                    'Кампания',
+                    '{camp_name_c}',
+                    'Список городов',
+                    'Показы', 'Клики', 'CTR %',
+                    'Установки',
+                    'Расходы ({client_currency})+НДС',
+                    'Расходы (RUB)+НДС'
+                  ];
+                  var wantedIdx = wantedCols.map(function(c) {{ return colMap[c]; }});
                   var table = document.createElement('table');
                   table.style.borderCollapse = 'collapse';
                   table.style.fontFamily = 'sans-serif';
                   table.style.fontSize = '13px';
-                  table.innerHTML = filteredHtml;
+                  var rows = orig.querySelectorAll('tr');
+                  rows.forEach(function(row) {{
+                    var rowType = row.getAttribute('data-rowtype');
+                    if (!rowType || rowType === 'itogo') return;
+                    var cells = row.querySelectorAll('th, td');
+                    var tr = document.createElement('tr');
+                    var bg = rowType === 'top3' ? '#d7ead9' : '#fff';
+                    wantedIdx.forEach(function(idx) {{
+                      if (idx === undefined) return;
+                      var td = document.createElement('td');
+                      var raw = cells[idx] ? cells[idx].innerText : '';
+                      // Убираем .00 только у целых чисел (не у расходов)
+                      var colName = wantedCols[wantedIdx.indexOf(idx)];
+                      var isSpend = colName && (colName.indexOf('Расходы') !== -1);
+                      if (!isSpend) {{
+                        raw = raw.replace(/^([\d,\s]+)\.00$/, '$1').trim();
+                      }}
+                      td.innerText = raw;
+                      td.style.border = '1px solid #ccc';
+                      td.style.color = '#000';
+                      td.style.background = bg;
+                      td.style.padding = '5px 10px';
+                      td.style.whiteSpace = 'nowrap';
+                      tr.appendChild(td);
+                    }});
+                    table.appendChild(tr);
+                  }});
                   var blob = new Blob([table.outerHTML], {{type: 'text/html'}});
                   navigator.clipboard.write([new ClipboardItem({{'text/html': blob}})]).then(function() {{
                     var btn = document.getElementById('btnCopyBunker2C_{camp_name_c}');
@@ -1669,7 +1687,7 @@ else:
                 # Определяем код страны из названия кампании (первые 2 буквы)
                 country_code = camp_name.strip()[:2].upper()
                 header_cells = ''.join([f'<th style="padding:6px 10px;text-align:left;border:1px solid var(--border-color);background:var(--header-bg);color:var(--text-color);font-weight:bold;white-space:nowrap;">{COL_DISPLAY_NAMES.get(c, c)}</th>' for c in cols_to_show])
-                html_rows.append(f'<tr><th class="col-country" style="display:none;">Страна</th>{header_cells}</tr>')
+                html_rows.append(f'<tr><th class="col-country" style="display:none;">Страна</th><th class="col-campname" style="display:none;">Кампания</th>{header_cells}</tr>')
 
                 for _, r in full_table[cols_to_show].iterrows():
                     name_val = str(r[camp_name])
@@ -1691,7 +1709,7 @@ else:
                         val = fmt_val(c, r[c])
                         align = 'left' if c == camp_name or c == 'Список городов' else 'right'
                         cells += f'<td style="padding:5px 10px;border:1px solid var(--border-color);color:var(--text-color);text-align:{align};white-space:nowrap;">{val}</td>'
-                    html_rows.append(f'<tr data-rowtype="{row_type}" style="{row_style}"><td class="col-country" style="display:none;">{country_code}</td>{cells}</tr>')
+                    html_rows.append(f'<tr data-rowtype="{row_type}" style="{row_style}"><td class="col-country" style="display:none;">{country_code}</td><td class="col-campname" style="display:none;">{camp_name}</td>{cells}</tr>')
 
                 all_tables_html.append((camp_name, ''.join(html_rows)))
 
@@ -1782,34 +1800,52 @@ else:
                   }}).catch(function(e) {{ alert('Ошибка: ' + e); }});
                 }}
                 function copyTableBunker2() {{
-                  var clone = buildClone(['LPM', 'Города']);
-                  // Показываем скрытую колонку страны
-                  clone.querySelectorAll('.col-country').forEach(function(el) {{
-                    el.style.display = '';
-                    el.style.border = '1px solid #ccc';
-                    el.style.color = '#000';
-                    el.style.background = '#fff';
-                    el.style.padding = '5px 10px';
-                  }});
-                  // Убираем шапку и ИТОГО
-                  var rows = clone.querySelectorAll('tr');
-                  var filteredHtml = '';
-                  rows.forEach(function(row) {{
-                    var rowType = row.getAttribute('data-rowtype');
-                    if (rowType === 'itogo') return;
-                    if (!rowType) return;
-                    row.querySelectorAll('td').forEach(function(td) {{
-                      td.style.border = '1px solid #ccc';
-                      td.style.color = '#000';
-                      td.style.background = rowType === 'top3' ? '#d7ead9' : '#fff';
-                    }});
-                    filteredHtml += row.outerHTML;
-                  }});
+                  var orig = document.getElementById('tbl_{camp_name}');
+                  var headers = orig.querySelectorAll('tr')[0].querySelectorAll('th');
+                  var colMap = {{}};
+                  headers.forEach(function(th, i) {{ colMap[th.innerText.trim()] = i; }});
+                  var wantedCols = [
+                    'Страна',
+                    'Кампания',
+                    '{camp_name}',
+                    'Список городов',
+                    'Показы', 'Клики', 'CTR %',
+                    'Результаты',
+                    'Расходы ({curr})+НДС',
+                    'Расходы (RUB)+НДС'
+                  ];
+                  var wantedIdx = wantedCols.map(function(c) {{ return colMap[c]; }});
                   var table = document.createElement('table');
                   table.style.borderCollapse = 'collapse';
                   table.style.fontFamily = 'sans-serif';
                   table.style.fontSize = '13px';
-                  table.innerHTML = filteredHtml;
+                  var rows = orig.querySelectorAll('tr');
+                  rows.forEach(function(row) {{
+                    var rowType = row.getAttribute('data-rowtype');
+                    if (!rowType || rowType === 'itogo') return;
+                    var cells = row.querySelectorAll('th, td');
+                    var tr = document.createElement('tr');
+                    var bg = rowType === 'top3' ? '#d7ead9' : '#fff';
+                    wantedIdx.forEach(function(idx) {{
+                      if (idx === undefined) return;
+                      var td = document.createElement('td');
+                      var raw = cells[idx] ? cells[idx].innerText : '';
+                      var raw = cells[idx] ? cells[idx].innerText : '';
+                      var colName = wantedCols[wantedIdx.indexOf(idx)];
+                      var isSpend = colName && (colName.indexOf('Расходы') !== -1);
+                      if (!isSpend) {{
+                        raw = raw.replace(/^([\d,\s]+)\.00$/, '$1').trim();
+                      }}
+                      td.innerText = raw;
+                      td.style.border = '1px solid #ccc';
+                      td.style.color = '#000';
+                      td.style.background = bg;
+                      td.style.padding = '5px 10px';
+                      td.style.whiteSpace = 'nowrap';
+                      tr.appendChild(td);
+                    }});
+                    table.appendChild(tr);
+                  }});
                   var blob = new Blob([table.outerHTML], {{type: 'text/html'}});
                   navigator.clipboard.write([new ClipboardItem({{'text/html': blob}})]).then(function() {{
                     var btn = document.getElementById('btnBunker2_{camp_name}');
