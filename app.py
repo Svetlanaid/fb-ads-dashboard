@@ -1,3 +1,4 @@
+from supabase import create_client
 import streamlit as st
 import requests
 import pandas as pd
@@ -12,7 +13,7 @@ from googleapiclient.discovery import build
 # 1. Загрузка настроек (Сначала из Secrets, если нет — из .env)
 load_dotenv()
 TOKEN = st.secrets.get("FB_ACCESS_TOKEN") or os.getenv("FB_ACCESS_TOKEN")
-from supabase import create_client
+from collector import ACCOUNT_LABELS
 supabase = create_client(
     st.secrets["SUPABASE_URL"],
     st.secrets["SUPABASE_KEY"]
@@ -338,6 +339,16 @@ if main_tab == "Клиенты":
         df_clients['Затраты (RUB)'] = safe_num('cost_rubles_VAT')
         df_clients['Заказы'] = safe_num('bOrder_count')
         df_clients['Регистрации'] = safe_num('sLoginReady_unique')
+        # Расходы: cost * vat = расходы в валюте с НДС, cost_rubles_VAT = расходы в рублях с НДС
+        _cost = pd.to_numeric(df_clients['cost'] if 'cost' in df_clients.columns else 0, errors='coerce').fillna(0)
+        _vat  = pd.to_numeric(df_clients['vat']  if 'vat'  in df_clients.columns else 0, errors='coerce').fillna(0)
+        df_clients['Расходы (VAT)'] = _cost * (1 + _vat / 100)
+        df_clients['Расходы (RUB)'] = safe_num('cost_rubles_VAT')
+        # Определяем валюту из колонки currency
+        if 'currency' in df_clients.columns:
+            client_currency = df_clients['currency'].dropna().iloc[0].upper() if not df_clients['currency'].dropna().empty else 'VAT'
+        else:
+            client_currency = 'VAT'
 
         # Нормализация ad_name
         def clean_creative_name_local(name):
@@ -452,6 +463,8 @@ if main_tab == "Клиенты":
                     'Результаты': 'sum',
                     'Заказы': 'sum',
                     'Регистрации': 'sum',
+                    'Расходы (VAT)': 'sum',
+                    'Расходы (RUB)': 'sum',
                     'adset_norm': lambda x: set(x.dropna().unique()),
                 }).reset_index()
                 table_c = table_c.rename(columns={'adset_norm': 'cities_set'})
@@ -489,6 +502,8 @@ if main_tab == "Клиенты":
                     'Результаты': table_c['Результаты'].sum(),
                     'Заказы': table_c['Заказы'].sum(),
                     'Регистрации': table_c['Регистрации'].sum(),
+                    'Расходы (VAT)': table_c['Расходы (VAT)'].sum(),
+                    'Расходы (RUB)': table_c['Расходы (RUB)'].sum(),
                     'Города': format_cities_local(all_cities_c),
                     'Список городов': ', '.join(sorted([c for c in all_cities_c if c != ''])),
                     'CTR %': (table_c['Клики'].sum() / table_c['Показы'].sum() * 100) if table_c['Показы'].sum() > 0 else 0,
@@ -508,7 +523,8 @@ if main_tab == "Клиенты":
                 full_c = full_c.rename(columns={'Результаты': 'Установки', 'Макет': camp_name_c})
                 table_c_renamed = table_c.rename(columns={'Результаты': 'Установки'})
                 top3_c = set(table_c_renamed[table_c_renamed['Регистрации'] > 0].nlargest(3, 'Регистрации')['Макет'].tolist())
-                cols_c = [camp_name_c, 'Показы', 'Клики', 'CTR %', 'Установки', 'Цена за установку', 'IPM', 'Заказы', 'Цена за заказ', 'Регистрации', 'Цена за регистрацию', 'Города', 'Список городов']
+                cols_c = [camp_name_c, 'Показы', 'Клики', 'CTR %', 'Установки', 'Цена за установку', 'IPM', 'Заказы', 'Цена за заказ', 'Регистрации', 'Цена за регистрацию', 'Города', 'Список городов', 'Расходы (VAT)', 'Расходы (RUB)']
+                cols_c_display = [c if c not in ['Расходы (VAT)', 'Расходы (RUB)'] else (f'Расходы ({client_currency})+НДС' if c == 'Расходы (VAT)' else 'Расходы (RUB)+НДС') for c in cols_c]
 
                 def fmt_c(col, val):
                     try:
@@ -520,13 +536,15 @@ if main_tab == "Клиенты":
                             return f"{int(float(val)):,}"
                         elif col == 'IPM':
                             return f"{float(val):.2f}"
+                        elif col in ['Расходы (VAT)', 'Расходы (RUB)']:
+                            return f"{float(val):,.2f}"
                         else:
                             return str(val) if val is not None else ''
                     except:
                         return str(val) if val is not None else ''
 
                 html_rows_c = []
-                header_c = ''.join([f'<th style="padding:6px 10px;text-align:left;border:1px solid var(--border-color);background:var(--header-bg);color:var(--text-color);font-weight:bold;white-space:nowrap;">{c}</th>' for c in cols_c])
+                header_c = ''.join([f'<th style="padding:6px 10px;text-align:left;border:1px solid var(--border-color);background:var(--header-bg);color:var(--text-color);font-weight:bold;white-space:nowrap;">{d}</th>' for d in cols_c_display])
                 html_rows_c.append(f'<tr>{header_c}</tr>')
 
                 for _, r in full_c[cols_c].iterrows():
@@ -586,7 +604,8 @@ try {{
 }} catch(e) {{}}
 </script>
 <button id="btnCopyC_{camp_name_c}" onclick="copyTableC()" style="margin-bottom:8px;margin-right:6px;padding:4px 12px;background:var(--btn-bg);color:var(--btn-color);border:1px solid var(--border-color);border-radius:5px;cursor:pointer;font-size:13px;">📋 Копировать</button>
-                <button id="btnCopyBunkerC_{camp_name_c}" onclick="copyTableBunkerC()" style="margin-bottom:8px;padding:4px 12px;background:var(--btn-bg);color:var(--btn-color);border:1px solid var(--border-color);border-radius:5px;cursor:pointer;font-size:13px;">📋 Копировать для бункера</button>
+                <button id="btnCopyBunkerC_{camp_name_c}" onclick="copyTableBunkerC()" style="margin-bottom:8px;margin-right:6px;padding:4px 12px;background:var(--btn-bg);color:var(--btn-color);border:1px solid var(--border-color);border-radius:5px;cursor:pointer;font-size:13px;">📋 Копировать для бункера</button>
+                <button id="btnCopyBunker2C_{camp_name_c}" onclick="copyTableBunker2C()" style="margin-bottom:8px;padding:4px 12px;background:var(--btn-bg);color:var(--btn-color);border:1px solid var(--border-color);border-radius:5px;cursor:pointer;font-size:13px;">📋 Копировать для бункера 2</button>
                 <script>
                 function applyBtnThemeC() {{
                   var dark = true;
@@ -646,11 +665,20 @@ try {{
                   }}).catch(function(e) {{ alert('Ошибка: ' + e); }});
                 }}
                 function copyTableBunkerC() {{
-                  var clone = buildCleanCloneC(['Заказы', 'Цена за заказ', 'Регистрации', 'Цена за регистрацию', 'Список городов']);
+                  var clone = buildCleanCloneC(['Заказы', 'Цена за заказ', 'Регистрации', 'Цена за регистрацию', 'Список городов', 'Расходы ({client_currency})+НДС', 'Расходы (RUB)+НДС']);
                   var blob = new Blob([clone.outerHTML], {{type: 'text/html'}});
                   navigator.clipboard.write([new ClipboardItem({{'text/html': blob}})]).then(function() {{
                     var btn = document.getElementById('btnCopyBunkerC_{camp_name_c}');
                     btn.innerText = '✅ Скопировано'; setTimeout(function() {{ btn.innerText = '📋 Копировать для бункера'; }}, 2000);
+                  }}).catch(function(e) {{ alert('Ошибка: ' + e); }});
+                }}
+                function copyTableBunker2C() {{
+                  var clone = buildCleanCloneC(['Заказы', 'Цена за заказ', 'Регистрации', 'Цена за регистрацию', 'Города', 'IPM']);
+                  var blob = new Blob([clone.outerHTML], {{type: 'text/html'}});
+                  navigator.clipboard.write([new ClipboardItem({{'text/html': blob}})]).then(function() {{
+                    var btn = document.getElementById('btnCopyBunker2C_{camp_name_c}');
+                    btn.innerText = '✅ Скопировано';
+                    setTimeout(function() {{ btn.innerText = '📋 Копировать для бункера 2'; }}, 2000);
                   }}).catch(function(e) {{ alert('Ошибка: ' + e); }});
                 }}
                 </script>
@@ -851,7 +879,9 @@ try {{
                         if item['img_url']:
                             if item['is_video'] and item.get('video_src'):
                                 if 'drive.google.com' in item['video_src']:
-                                    media_html = f"""<iframe src="{item['video_src']}" style="width:100%;aspect-ratio:1;border:none;border-radius:10px;" allowfullscreen allow="autoplay"></iframe>"""
+                                    drive_file_id = item['video_src'].split('/d/')[1].split('/')[0]
+                                    drive_open_url = f"https://drive.google.com/file/d/{drive_file_id}/view"
+                                    media_html = f"""<div style="position:relative;width:100%;border-radius:10px;overflow:hidden;"><img src="{item['img_url']}" style="width:100%;height:auto;display:block;border-radius:10px;"><a href="{drive_open_url}" target="_blank" style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;text-decoration:none;border-radius:10px;"><div style="width:56px;height:56px;background:rgba(255,255,255,0.92);border-radius:50%;display:flex;align-items:center;justify-content:center;"><div style="width:0;height:0;margin-left:6px;border-top:12px solid transparent;border-bottom:12px solid transparent;border-left:20px solid #222;"></div></div></a></div>"""
                                 else:
                                     media_html = f"""<div style="width:100%;aspect-ratio:1;border-radius:10px;overflow:hidden;background:#000;"><video src="{item['video_src']}" style="width:100%;height:100%;object-fit:cover;display:block;" controls preload="metadata" playsinline></video></div>"""
                             else:
@@ -1087,18 +1117,6 @@ else:
 
     # 2. ПОЛУЧЕНИЕ СПИСКА АККАУНТОВ (ОДИН РАЗ!)
     try:
-        cutoff_date = "2026-01-01"
-        today_str = datetime.now().strftime('%Y-%m-%d')
-        
-        accounts_url = f"https://graph.facebook.com/v19.0/me/adaccounts"
-        acc_params = {
-            "fields": f"name,account_id,currency,insights.time_range({{'since':'{cutoff_date}','until':'{today_str}'}}){{spend}}",
-            "limit": 100,
-            "access_token": TOKEN
-
-        }
-        
-        # Сбрасываем кэш если наступил новый день
         cached_date = st.session_state.get('all_accounts_cache_date')
         today_date = datetime.now().strftime('%Y-%m-%d')
         if cached_date != today_date:
@@ -1106,45 +1124,39 @@ else:
             st.session_state['all_accounts_cache_date'] = today_date
 
         if not st.session_state.get('all_accounts_data'):
-            all_accounts_data = []
-            acc_response = requests.get(accounts_url, params=acc_params, timeout=120).json()
-            if 'error' in acc_response:
-                st.warning(f"⚠️ FB API временно недоступен (rate limit). Данные загружаются из базы.")
-                acc_response = {"data": []}
-            while True:
-                if "data" in acc_response:
-                    all_accounts_data.extend(acc_response["data"])
-                if "paging" in acc_response and "next" in acc_response["paging"]:
-                    acc_response = requests.get(acc_response["paging"]["next"], timeout=120).json()
-                else:
-                    break
-            # Не кэшируем пустой результат
-            if all_accounts_data:
-                st.session_state['all_accounts_data'] = all_accounts_data
+            resp = supabase.table("fb_insights_daily")\
+                .select("account_id, currency")\
+                .execute()
+                
+
+            if not resp.data:
+                st.warning("Нет данных в базе. Возможно коллектор ещё не запускался.")
+                st.stop()
+
+            seen = {}
+            for row in resp.data:
+                acc_id = row['account_id']
+                if acc_id not in seen:
+                    seen[acc_id] = row['currency']
+
+            all_accounts_data = [{'account_id': k, 'currency': v} for k, v in seen.items()]
+            st.session_state['all_accounts_data'] = all_accounts_data
         else:
             all_accounts_data = st.session_state['all_accounts_data']
 
         accounts_dict = {}
         for acc in all_accounts_data:
-            insights = acc.get("insights", {}).get("data", [])
-            has_spend = insights and any(float(day.get('spend', 0)) > 0 for day in insights)
-            
-            # Если insights вообще не пришёл от FB — всё равно добавляем аккаунт
-            # чтобы не терять его из-за сбоя API
-            insights_missing = "insights" not in acc
-            
-            if has_spend or insights_missing:
-                name = acc.get('name') or f"Unnamed ({acc['account_id']})"
-                accounts_dict[name] = {
-                    'id': acc['account_id'], 
-                    'currency': acc.get('currency', 'USD')
-                }
+            acc_id = acc['account_id']
+            if acc_id not in VAT_MAP:
+                continue
+            name = ACCOUNT_LABELS.get(acc_id, f"Unknown ({acc_id})")
+            accounts_dict[name] = {
+                'id': acc_id,
+                'currency': acc.get('currency', 'USD')
+            }
 
         if not accounts_dict:
-            st.warning("FB API не вернул данные по аккаунтам.")
-            if st.button("🔄 Сбросить кэш и повторить"):
-                st.session_state.pop('all_accounts_data', None)
-                st.rerun()
+            st.warning("Нет аккаунтов в базе данных.")
             st.stop()
         
     except Exception as e:
@@ -1157,7 +1169,8 @@ else:
     group_rules = {
         "Indonesia": ["Indonesia", "Indonesia exec"],
         "Philippines": ["PH exec", "PH usd", "Philippines"],
-        "Belarus": ["Belarus", "Belarus usd"]
+        "Belarus": ["Belarus", "Belarus usd"],
+        "Tanzania": ["Tanzania", "Tanzania GMT"],
     }
 
     for acc_name, acc_info in accounts_dict.items():
@@ -1189,7 +1202,6 @@ else:
         "Vietnam": "Maxim Vietnam",
         "South Africa ZA": "Maxim South Africa",
         "TH": "Maxim Dominican Republic",
-        "Tanzania GMT": "Tanzania GMT",
     }
     merged_accounts = {ACCOUNT_DISPLAY_NAMES.get(k, k): v for k, v in merged_accounts.items()}
 
@@ -1316,6 +1328,9 @@ else:
                                 'leads':         'Результаты',
                             })
                             df_raw['Затраты'] = df_raw['spend'].astype(float)
+                            df_raw['vat_multiplier'] = df_raw['account_id'].astype(str).map(VAT_MAP).fillna(1.0)
+                            df_raw['spend_vat'] = df_raw['spend'].astype(float) * df_raw['vat_multiplier']
+                            df_raw['spend_vat_rub'] = df_raw['Затраты (RUB)'].astype(float)
                             df_raw['Показы']  = df_raw['impressions'].astype(int)
                             df_raw['Клики']   = df_raw['clicks'].astype(int)
                             df_raw['adset_norm'] = df_raw['adset_name'].apply(normalize_adset)
@@ -1419,14 +1434,23 @@ else:
                 
                 # 1. Агрегация для таблицы (Названия по вашему списку)
                 # Агрегируем по МАКЕТУ (ad_id), а не по кампании
-                table_data = df_c.groupby('Макет').agg({
+                agg_dict = {
                     'Показы': 'sum',
                     'Клики': 'sum',
                     'Затраты (RUB)': 'sum',
                     'Результаты': 'sum',
                     'adset_norm': lambda x: set(x.dropna().unique()),
                     'ad_id': 'first',
-                }).reset_index()
+                }
+                if 'spend_vat' in df_c.columns:
+                    agg_dict['spend_vat'] = 'sum'
+                if 'spend_vat_rub' in df_c.columns:
+                    agg_dict['spend_vat_rub'] = 'sum'
+                table_data = df_c.groupby('Макет').agg(agg_dict).reset_index()
+                if 'spend_vat' not in table_data.columns:
+                    table_data['spend_vat'] = 0.0
+                if 'spend_vat_rub' not in table_data.columns:
+                    table_data['spend_vat_rub'] = 0.0
 
                 table_data = table_data.rename(columns={
                     'Макет': camp_name,
@@ -1482,6 +1506,8 @@ else:
                     'CTR %': (table_data['Клики'].sum() / table_data['Показы'].sum() * 100) if table_data['Показы'].sum() > 0 else 0,
                     'LPM': (table_data['Результаты'].sum() / table_data['Показы'].sum() * 1000) if table_data['Показы'].sum() > 0 else 0,
                     'Цена за результат': (table_data['Затраты (RUB)'].sum() / table_data['Результаты'].sum()) if table_data['Результаты'].sum() > 0 else 0,
+                    'spend_vat': table_data['spend_vat'].sum(),
+                    'spend_vat_rub': table_data['spend_vat_rub'].sum(),
                 }])
 
                 full_table = pd.concat([table_data, ttotals], ignore_index=True)
@@ -1584,7 +1610,7 @@ else:
                     html_rows = cpm_html_rows
                     full_table = full_cpm
                 else:
-                    cols_to_show = [camp_name, 'Показы', 'Клики', 'CTR %', 'Результаты', 'Цена за результат', 'LPM', 'Города', 'Список городов']
+                    cols_to_show = [camp_name, 'Показы', 'Клики', 'CTR %', 'Результаты', 'Цена за результат', 'LPM', 'Города', 'Список городов', 'spend_vat', 'spend_vat_rub']
 
                 def fmt_val(col, val):
                     try:
@@ -1598,15 +1624,21 @@ else:
                             return f"{int(round(float(val))):,}"
                         elif col == 'LPM':
                             return f"{float(val):.2f}"
+                        elif col in ['spend_vat', 'spend_vat_rub']:
+                            return f"{float(val):,.2f}"
                         else:
                             return str(val) if val is not None else ''
                     except:
                         return str(val) if val is not None else ''
 
                 # Строим HTML таблицу
+                COL_DISPLAY_NAMES = {
+                    'spend_vat': f'Расходы ({curr})+НДС',
+                    'spend_vat_rub': 'Расходы (RUB)+НДС',
+                }
                 html_rows = []
                 # Шапка
-                header_cells = ''.join([f'<th style="padding:6px 10px;text-align:left;border:1px solid var(--border-color);background:var(--header-bg);color:var(--text-color);font-weight:bold;white-space:nowrap;">{c}</th>' for c in cols_to_show])
+                header_cells = ''.join([f'<th style="padding:6px 10px;text-align:left;border:1px solid var(--border-color);background:var(--header-bg);color:var(--text-color);font-weight:bold;white-space:nowrap;">{COL_DISPLAY_NAMES.get(c, c)}</th>' for c in cols_to_show])
                 html_rows.append(f'<tr>{header_cells}</tr>')
 
                 for _, r in full_table[cols_to_show].iterrows():
@@ -1711,7 +1743,7 @@ else:
                   }}).catch(function(e) {{ alert('Ошибка: ' + e); }});
                 }}
                 function copyTableBunker() {{
-                  var clone = buildClone(['Список городов']);
+                  var clone = buildClone(['Список городов', 'Расходы ({curr})+НДС', 'Расходы (RUB)+НДС']);
                   var blob = new Blob([clone.outerHTML], {{type: 'text/html'}});
                   navigator.clipboard.write([new ClipboardItem({{'text/html': blob}})]).then(function() {{
                     var btn = document.getElementById('btnBunker_{camp_name}');
@@ -1719,10 +1751,20 @@ else:
                     setTimeout(function() {{ btn.innerText = '📋 Копировать для бункера'; }}, 2000);
                   }}).catch(function(e) {{ alert('Ошибка: ' + e); }});
                 }}
+                function copyTableBunker2() {{
+                  var clone = buildClone(['LPM', 'Города']);
+                  var blob = new Blob([clone.outerHTML], {{type: 'text/html'}});
+                  navigator.clipboard.write([new ClipboardItem({{'text/html': blob}})]).then(function() {{
+                    var btn = document.getElementById('btnBunker2_{camp_name}');
+                    btn.innerText = '✅ Скопировано';
+                    setTimeout(function() {{ btn.innerText = '📋 Копировать для бункера 2'; }}, 2000);
+                  }}).catch(function(e) {{ alert('Ошибка: ' + e); }});
+                }}
                 </script>
                 <div style="margin-bottom:6px;">
                   <button id="btnCopy_{camp_name}" onclick="copyTable()" style="margin-right:6px;padding:4px 12px;background:var(--btn-bg);color:var(--btn-color);border:1px solid var(--border-color);border-radius:5px;cursor:pointer;font-size:13px;">📋 Копировать</button>
-                  <button id="btnBunker_{camp_name}" onclick="copyTableBunker()" style="padding:4px 12px;background:var(--btn-bg);color:var(--btn-color);border:1px solid var(--border-color);border-radius:5px;cursor:pointer;font-size:13px;">📋 Копировать для бункера</button>
+                  <button id="btnBunker_{camp_name}" onclick="copyTableBunker()" style="margin-right:6px;padding:4px 12px;background:var(--btn-bg);color:var(--btn-color);border:1px solid var(--border-color);border-radius:5px;cursor:pointer;font-size:13px;">📋 Копировать для бункера</button>
+                  <button id="btnBunker2_{camp_name}" onclick="copyTableBunker2()" style="padding:4px 12px;background:var(--btn-bg);color:var(--btn-color);border:1px solid var(--border-color);border-radius:5px;cursor:pointer;font-size:13px;">📋 Копировать для бункера 2</button>
                 </div>
                 <div id="tbl_wrap_{camp_name}" style="overflow-x:auto;margin-bottom:4px;">
                 <table id="tbl_{camp_name}" style="border-collapse:collapse;font-size:13px;font-family:sans-serif;width:100%;">
@@ -1858,7 +1900,9 @@ else:
                         if item['img_url']:
                             if item['is_video'] and item.get('video_src'):
                                 if 'drive.google.com' in item['video_src']:
-                                    media_html = f"""<iframe src="{item['video_src']}" style="width:100%;aspect-ratio:1;border:none;border-radius:10px;" allowfullscreen allow="autoplay"></iframe>"""
+                                    drive_file_id = item['video_src'].split('/d/')[1].split('/')[0]
+                                    drive_open_url = f"https://drive.google.com/file/d/{drive_file_id}/view"
+                                    media_html = f"""<div style="position:relative;width:100%;border-radius:10px;overflow:hidden;"><img src="{item['img_url']}" style="width:100%;height:auto;display:block;border-radius:10px;"><a href="{drive_open_url}" target="_blank" style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;text-decoration:none;border-radius:10px;"><div style="width:56px;height:56px;background:rgba(255,255,255,0.92);border-radius:50%;display:flex;align-items:center;justify-content:center;"><div style="width:0;height:0;margin-left:6px;border-top:12px solid transparent;border-bottom:12px solid transparent;border-left:20px solid #222;"></div></div></a></div>"""
                                 else:
                                     media_html = f"""<video src="{item['video_src']}" style="width:100%;height:auto;display:block;border-radius:10px;" controls preload="metadata" playsinline></video>"""
                             else:
@@ -1876,7 +1920,7 @@ else:
             # Удалите весь старый блок галереи после цикла (от "# Кнопка скачать все таблицы" до конца gallery_items)
         st.stop()
 
-# 5. ЗАГРУЗКА ДАННЫХ ИЗ БАЗЫ
+    # 5. ЗАГРУЗКА ДАННЫХ ИЗ БАЗЫ
     try:
         from collector import ACCOUNT_LABELS
         selected_db_labels = set()
