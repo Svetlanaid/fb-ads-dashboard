@@ -80,17 +80,36 @@ ACCOUNT_LABELS = {
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ============================================================
 
-def get_rub_rate(currency: str) -> float:
-    """Получает курс валюты к рублю"""
+_rate_cache = {}
+
+def get_rub_rate(currency: str, date: str = None) -> float:
+    """Получает курс валюты к рублю — исторический если передана дата, иначе текущий"""
+    cache_key = f"{currency}_{date or 'latest'}"
+    if cache_key in _rate_cache:
+        return _rate_cache[cache_key]
+    try:
+        if date:
+            url = f"https://api.frankfurter.app/{date}?from={currency}&to=RUB"
+        else:
+            url = f"https://api.frankfurter.app/latest?from={currency}&to=RUB"
+        resp = requests.get(url, timeout=10).json()
+        rate = resp.get("rates", {}).get("RUB", 1.0)
+        _rate_cache[cache_key] = rate
+        return rate
+    except Exception as e:
+        print(f"  ⚠️ Ошибка получения курса {currency} на {date}: {e}")
+    # Fallback на open.er-api
     try:
         resp = requests.get(
             f"https://open.er-api.com/v6/latest/{currency}",
             timeout=10
         ).json()
         if resp.get("result") == "success":
-            return resp["rates"].get("RUB", 1.0)
-    except Exception as e:
-        print(f"  ⚠️ Ошибка получения курса {currency}: {e}")
+            rate = resp["rates"].get("RUB", 1.0)
+            _rate_cache[cache_key] = rate
+            return rate
+    except:
+        pass
     return 1.0
 
 
@@ -147,9 +166,9 @@ def collect_insights(account_id: str, currency: str, since: str, until: str):
     """
     vat_mult   = VAT_MAP.get(account_id, 1.0)
     label      = ACCOUNT_LABELS.get(account_id, account_id)
-    rub_rate   = get_rub_rate(currency)
+    rub_rate_cache_local = {}
 
-    print(f"  📊 Собираем статистику: {label} ({account_id}), курс {currency}={rub_rate:.2f}₽")
+    print(f"  📊 Собираем статистику: {label} ({account_id}), валюта {currency}")
 
     rows_to_upsert = []
     url = f"https://graph.facebook.com/v19.0/act_{account_id}/insights"
@@ -174,6 +193,10 @@ def collect_insights(account_id: str, currency: str, since: str, until: str):
                 spend = float(row.get("spend", 0))
                 impressions = int(row.get("impressions", 0))
                 clicks = int(row.get("inline_link_clicks", 0))
+                row_date = row["date_start"]
+                if row_date not in rub_rate_cache_local:
+                    rub_rate_cache_local[row_date] = get_rub_rate(currency, row_date)
+                rub_rate = rub_rate_cache_local[row_date]
 
                 rows_to_upsert.append({
                     "date_start":    row["date_start"],
@@ -385,7 +408,7 @@ def collect_creatives(account_id: str, currency: str, since: str, until: str):
     """
     vat_mult = VAT_MAP.get(account_id, 1.0)
     label    = ACCOUNT_LABELS.get(account_id, account_id)
-    rub_rate = get_rub_rate(currency)
+    rub_rate_cache_local = {}
 
     print(f"  🖼️  Собираем макеты: {label} ({account_id})")
 
@@ -420,6 +443,11 @@ def collect_creatives(account_id: str, currency: str, since: str, until: str):
                 # (атрибуционные хвосты с лидами оставляем — они учтены в FB UI)
                 if spend <= 0 and impressions <= 0 and clicks <= 0 and leads_count <= 0:
                     continue
+
+                row_date = row["date_start"]
+                if row_date not in rub_rate_cache_local:
+                    rub_rate_cache_local[row_date] = get_rub_rate(currency, row_date)
+                rub_rate = rub_rate_cache_local[row_date]
 
                 rows_to_upsert.append({
                     "date_start":    row["date_start"],
@@ -501,6 +529,12 @@ def main():
         except Exception as e:
             errors.append(f"insights {acc_id}: {e}")
             print(f"  ❌ Ошибка insights: {e}")
+
+        try:
+            collect_creatives(acc_id, currency, since, until)
+        except Exception as e:
+            errors.append(f"creatives {acc_id}: {e}")
+            print(f"  ❌ Ошибка creatives: {e}")
 
     # Итог
     print(f"\n{'='*60}")
