@@ -87,29 +87,37 @@ def get_rub_rate(currency: str, date: str = None) -> float:
     cache_key = f"{currency}_{date or 'latest'}"
     if cache_key in _rate_cache:
         return _rate_cache[cache_key]
+
+    # Сначала пробуем open.er-api (поддерживает IDR и другие экзотические валюты)
+    try:
+        if date:
+            url = f"https://open.er-api.com/v6/history/{currency}/{date}"
+        else:
+            url = f"https://open.er-api.com/v6/latest/{currency}"
+        resp = requests.get(url, timeout=10).json()
+        if resp.get("result") == "success":
+            rate = resp["rates"].get("RUB", 0)
+            if rate > 0:
+                _rate_cache[cache_key] = rate
+                return rate
+    except Exception as e:
+        print(f"  ⚠️ open.er-api ошибка {currency} на {date}: {e}")
+
+    # Fallback на frankfurter.app (для EUR/USD/GBP и др.)
     try:
         if date:
             url = f"https://api.frankfurter.app/{date}?from={currency}&to=RUB"
         else:
             url = f"https://api.frankfurter.app/latest?from={currency}&to=RUB"
         resp = requests.get(url, timeout=10).json()
-        rate = resp.get("rates", {}).get("RUB", 1.0)
-        _rate_cache[cache_key] = rate
-        return rate
-    except Exception as e:
-        print(f"  ⚠️ Ошибка получения курса {currency} на {date}: {e}")
-    # Fallback на open.er-api
-    try:
-        resp = requests.get(
-            f"https://open.er-api.com/v6/latest/{currency}",
-            timeout=10
-        ).json()
-        if resp.get("result") == "success":
-            rate = resp["rates"].get("RUB", 1.0)
+        rate = resp.get("rates", {}).get("RUB", 0)
+        if rate > 0:
             _rate_cache[cache_key] = rate
             return rate
-    except:
-        pass
+    except Exception as e:
+        print(f"  ⚠️ frankfurter ошибка {currency} на {date}: {e}")
+
+    print(f"  ❌ Не удалось получить курс {currency} на {date}, используем 1.0")
     return 1.0
 
 
