@@ -32,7 +32,7 @@ VAT_MAP = {
     "1013441868511084":  1.0,        # Болгария
     "24948463558072461": 1 / (1 - 0.029 - 0.0925),  # Бразилия
     "192474577136849":   1.0,        # Вьетнам
-    "582893932494739":   1.0,        # Грузия
+    "1447822209955305":  1.0,        # Грузия
     "817547549239841":   1.11,       # Доминикана
     "1591493017715668":  1.11,       # Индонезия
     "257290219582370":   1.11,       # Индонезия 2
@@ -58,7 +58,7 @@ ACCOUNT_LABELS = {
     "1013441868511084":  "Maxim Bulgaria",
     "24948463558072461": "Maxim Brasil",
     "192474577136849":   "Maxim Vietnam",
-    "582893932494739":   "Maxim Georgia",
+    "1447822209955305":  "Maxim Georgia",
     "817547549239841":   "Maxim Dominican Republic",
     "1591493017715668":  "Maxim Indonesia",
     "257290219582370":   "Maxim Indonesia",
@@ -241,6 +241,14 @@ def collect_insights(account_id: str, currency: str, since: str, until: str):
     except Exception as e:
         print(f"    ❌ Ошибка при сборе insights: {e}")
         return
+
+    # Дедупликация перед сохранением
+    seen = {}
+    for row in rows_to_upsert:
+        key = (row["date_start"], row["account_id"], row["campaign_name"])
+        seen[key] = row
+    rows_to_upsert = list(seen.values())
+    print(f"    📦 После дедупликации: {len(rows_to_upsert)} строк")
 
     # Сохраняем в Supabase пачками по 500 строк
     if rows_to_upsert:
