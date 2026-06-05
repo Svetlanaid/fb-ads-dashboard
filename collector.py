@@ -117,6 +117,21 @@ def get_rub_rate(currency: str, date: str = None) -> float:
     except Exception as e:
         print(f"  ⚠️ frankfurter ошибка {currency} на {date}: {e}")
 
+    # Fallback на exchangerate-api (хорошо поддерживает COP, ARS и др.)
+    try:
+        url = "https://api.exchangerate-api.com/v4/latest/USD"
+        resp = requests.get(url, timeout=10).json()
+        rates = resp.get("rates", {})
+        usd_to_rub = rates.get("RUB", 0)
+        usd_to_curr = rates.get(currency, 0)
+        if usd_to_rub > 0 and usd_to_curr > 0:
+            rate = usd_to_rub / usd_to_curr
+            _rate_cache[cache_key] = rate
+            print(f"  ✅ exchangerate-api: 1 {currency} = {rate:.4f} RUB")
+            return rate
+    except Exception as e:
+        print(f"  ⚠️ exchangerate-api ошибка {currency}: {e}")
+
     print(f"  ❌ Не удалось получить курс {currency} на {date}, используем 1.0")
     return 1.0
 
@@ -201,10 +216,9 @@ def collect_insights(account_id: str, currency: str, since: str, until: str):
                 spend = float(row.get("spend", 0))
                 impressions = int(row.get("impressions", 0))
                 clicks = int(row.get("inline_link_clicks", 0))
-                row_date = row["date_start"]
-                if row_date not in rub_rate_cache_local:
-                    rub_rate_cache_local[row_date] = get_rub_rate(currency, row_date)
-                rub_rate = rub_rate_cache_local[row_date]
+                if currency not in rub_rate_cache_local:
+                    rub_rate_cache_local[currency] = get_rub_rate(currency)
+                rub_rate = rub_rate_cache_local[currency]
 
                 rows_to_upsert.append({
                     "date_start":    row["date_start"],
@@ -428,8 +442,8 @@ def collect_creatives(account_id: str, currency: str, since: str, until: str):
         "level": "ad",
         "time_increment": 1,
         "action_attribution_windows": "['7d_click','1d_view']",
-        "limit": 200,
-        "access_token": FB_TOKEN
+        "limit": 200,"access_token": FB_TOKEN
+        
     }
 
     try:
@@ -452,25 +466,25 @@ def collect_creatives(account_id: str, currency: str, since: str, until: str):
                 if spend <= 0 and impressions <= 0 and clicks <= 0 and leads_count <= 0:
                     continue
 
-                row_date = row["date_start"]
-                if row_date not in rub_rate_cache_local:
-                    rub_rate_cache_local[row_date] = get_rub_rate(currency, row_date)
-                rub_rate = rub_rate_cache_local[row_date]
+                if currency not in rub_rate_cache_local:
+                    rub_rate_cache_local[currency] = get_rub_rate(currency)
+                rub_rate = rub_rate_cache_local[currency]
 
                 rows_to_upsert.append({
-                    "date_start":    row["date_start"],
-                    "account_id":    account_id,
-                    "country_label": label,
-                    "campaign_name": row.get("campaign_name", ""),
-                    "adset_name":    row.get("adset_name", ""),
-                    "ad_name":       row.get("ad_name", ""),
-                    "ad_id":         row.get("ad_id", ""),
-                    "spend":         spend,
-                    "spend_rub":     spend * vat_mult * rub_rate,
-                    "impressions":   impressions,
-                    "clicks":        int(row.get("inline_link_clicks", 0)),
-                    "reach":         int(row.get("reach", 0)),
-                    "leads":         leads_count,
+                    "date_start":     row["date_start"],
+                    "account_id":     account_id,
+                    "country_label":  label,
+                    "campaign_name":  row.get("campaign_name", ""),
+                    "adset_name":     row.get("adset_name", ""),
+                    "ad_name":        row.get("ad_name", ""),
+                    "ad_id":          row.get("ad_id", ""),
+                    "spend":          spend,
+                    "spend_rub":      spend * vat_mult * rub_rate,
+                    "currency":       currency,
+                    "impressions":    impressions,
+                    "clicks":         int(row.get("inline_link_clicks", 0)),
+                    "reach":          int(row.get("reach", 0)),
+                    "leads":          leads_count,
                 })
 
             url    = resp.get("paging", {}).get("next")
@@ -479,17 +493,32 @@ def collect_creatives(account_id: str, currency: str, since: str, until: str):
     except Exception as e:
         print(f"    ❌ Ошибка при сборе creatives: {e}")
         return
+    # Дедупликация с учётом DCO-ассетов
+    seen = {}
+    for row in rows_to_upsert:
+        key = (row["date_start"], row["account_id"], row["ad_id"], row.get("dco_asset_name") or "")
+        seen[key] = row
+    rows_to_upsert = list(seen.values())
+    print(f"    📦 После дедупликации: {len(rows_to_upsert)} строк")
 
     # Сохраняем в Supabase
     if rows_to_upsert:
         try:
+            # Удаляем старые данные за этот период для этого аккаунта
+            print(f"    🗑️ Удаляем старые данные за период...", flush=True)
+            supabase.table("fb_ads_creatives")\
+                .delete()\
+                .eq("account_id", account_id)\
+                .gte("date_start", since)\
+                .lte("date_start", until)\
+                .execute()
+            print(f"    ✅ Старые данные удалены", flush=True)
             batch_size = 500
             for i in range(0, len(rows_to_upsert), batch_size):
                 batch = rows_to_upsert[i:i + batch_size]
-                supabase.table("fb_ads_creatives").upsert(
-                    batch,
-                    on_conflict="date_start,account_id,ad_id"
-                ).execute()
+                print(f"    ⏳ [3] Сохраняем в Supabase строки {i}–{i+len(batch)}", flush=True)
+                supabase.table("fb_ads_creatives").insert(batch).execute()
+                print(f"    ✅ [4] Batch {i} сохранён", flush=True)
             print(f"    ✅ Сохранено строк по макетам: {len(rows_to_upsert)}")
         except Exception as e:
             print(f"    ❌ Ошибка сохранения в Supabase: {e}")
@@ -557,4 +586,24 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    print("DEBUG argv:", sys.argv)
+    args = sys.argv[1:]
+    if "--dco" in args:
+        collect_dco_only()
+    elif "--thailand" in args:
+        ACC_TH = "2727239577416075"
+        CURR_TH = "THB"
+        until = datetime.now().strftime("%Y-%m-%d")
+        since = (datetime.now() - timedelta(days=35)).strftime("%Y-%m-%d")
+        print(f"🇹🇭 # --- DCO: проверяем только объявления из известных DCO-кампаний --- Таиланд: {since} → {until}")
+        collect_creatives(ACC_TH, CURR_TH, since, until)
+    elif "--dco-test" in args:
+        ACC_TH = "2727239577416075"
+        CURR_TH = "THB"
+        since = "2026-05-27"
+        until = "2026-05-27"
+        print(f"🧪 DCO тест: {since} → {until}")
+        collect_creatives(ACC_TH, CURR_TH, since, until)
+    else:
+        main()
