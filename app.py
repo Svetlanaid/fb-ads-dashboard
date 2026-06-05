@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.express as px
 import os
 import re
+import json
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from google.oauth2 import service_account
@@ -377,8 +378,10 @@ if main_tab == "Клиенты":
             name = re.sub(r'\.(png|jpg|jpeg).*$', '', name, flags=re.IGNORECASE)
             name = re.sub(r'_\d{3,}', '', name)
             name = re.sub(r'\([^)]*\)', '', name)
-            name = re.sub(r'(cost)\s*[\d.,]+\s*', lambda m: m.group(1) + ' ', name, flags=re.IGNORECASE)
-            name = re.sub(r'(cost)\s*\.\d+\s*', lambda m: m.group(1) + ' ', name, flags=re.IGNORECASE)
+            name = re.sub(r'(cost)\s*[\d.,]+\s*', lambda m: m.group(1), name, flags=re.IGNORECASE)
+            name = re.sub(r'(cost)\s*\.\d+\s*', lambda m: m.group(1), name, flags=re.IGNORECASE)
+            name = re.sub(r'(cost)\s+(_)', lambda m: m.group(1) + m.group(2), name, flags=re.IGNORECASE)
+            name = re.sub(r'(cost)\s+(\w)', lambda m: m.group(1) + '_' + m.group(2), name, flags=re.IGNORECASE)
             name = name.strip()
             name = re.sub(r'\b\d{2,}\b', '', name)
             name = re.sub(r'\s{2,}', ' ', name).strip()
@@ -544,6 +547,42 @@ if main_tab == "Клиенты":
                         return str(val) if val is not None else ''
 
                 country_code_c = camp_name_c.strip()[:2].upper()
+
+                # Данные для бункера 2 с разбивкой по городам (клиенты)
+                installs_col = 'Установки' if 'Установки' in df_cc.columns else 'Результаты'
+                
+                _city_agg_c = df_cc.groupby(['adset_norm', 'Макет']).agg({
+                    'Показы': 'sum', 
+                    'Клики': 'sum', 
+                    installs_col: 'sum',
+                    'Регистрации': 'sum', 
+                    'Заказы': 'sum',
+                    'Расходы (VAT)': 'sum', 
+                    'Расходы (RUB)': 'sum',
+                }).reset_index()
+                
+                if 'Результаты' in _city_agg_c.columns:
+                    _city_agg_c = _city_agg_c.rename(columns={'Результаты': 'Установки'})
+                _city_agg_c['CTR %'] = (_city_agg_c['Клики'] / _city_agg_c['Показы'] * 100).fillna(0)
+                _cities_sorted_c = sorted([c for c in _city_agg_c['adset_norm'].unique() if c != 'allcity'])
+                if 'allcity' in _city_agg_c['adset_norm'].values:
+                    _cities_sorted_c.append('allcity')
+                _b2rows_c = []
+                for _city in _cities_sorted_c:
+                    for _, _r in _city_agg_c[_city_agg_c['adset_norm'] == _city].iterrows():
+                        _installs_val = int(_r.get('Установки', _r.get('Результаты', 0)))
+                        _b2rows_c.append({
+                            'country': country_code_c, 'campaign': camp_name_c, 'city': _city,
+                            'creative': str(_r['Макет']),
+                            'impressions': int(_r['Показы']), 'clicks': int(_r['Клики']),
+                            'ctr': round(float(_r['CTR %']), 2),
+                            'installs': _installs_val,
+                            'registrations': int(_r['Регистрации']), 'orders': int(_r['Заказы']),
+                            'spend_vat': round(float(_r['Расходы (VAT)']), 2),
+                            'spend_rub': round(float(_r['Расходы (RUB)']), 2),
+                        })
+                _bunker2_json_c = json.dumps(_b2rows_c, ensure_ascii=False)
+
                 html_rows_c = []
                 header_c = ''.join([f'<th style="padding:6px 10px;text-align:left;border:1px solid var(--border-color);background:var(--header-bg);color:var(--text-color);font-weight:bold;white-space:nowrap;">{d}</th>' for d in cols_c_display])
                 html_rows_c.append(f'<tr><th class="col-country-c" style="display:none;">Страна</th><th class="col-campname-c" style="display:none;">Кампания</th>{header_c}</tr>')
@@ -626,9 +665,10 @@ try {{
                 setInterval(applyBtnThemeC, 1500);
 
                 function buildCleanCloneC(excludeCols) {{
-                  var orig = document.getElementById('tbl_c_{camp_name_c}');
-                  var clone = orig.cloneNode(true);
-                  if (excludeCols && excludeCols.length > 0) {{
+                    var orig = document.getElementById('tbl_c_{camp_name_c}');
+                    var clone = orig.cloneNode(true);
+                    clone.querySelectorAll('.col-country-c, .col-campname-c').forEach(function(el) {{ el.remove(); }});
+                    if (excludeCols && excludeCols.length > 0) {{
                     var headers = clone.querySelectorAll('tr')[0].querySelectorAll('th');
                     var colIndexes = [];
                     headers.forEach(function(th, i) {{
@@ -658,7 +698,7 @@ try {{
                   return clone;
                 }}
                 function copyTableC() {{
-                  var clone = buildCleanCloneC([]);
+                    var clone = buildCleanCloneC(['Расходы ({client_currency})+НДС', 'Расходы (RUB)+НДС']);
                   var blob = new Blob([clone.outerHTML], {{type: 'text/html'}});
                   navigator.clipboard.write([new ClipboardItem({{'text/html': blob}})]).then(function() {{
                     var btn = document.getElementById('btnCopyC_{camp_name_c}');
@@ -674,48 +714,33 @@ try {{
                   }}).catch(function(e) {{ alert('Ошибка: ' + e); }});
                 }}
                 function copyTableBunker2C() {{
-                  var orig = document.getElementById('tbl_c_{camp_name_c}');
-                  var headers = orig.querySelectorAll('tr')[0].querySelectorAll('th');
-                  var colMap = {{}};
-                  headers.forEach(function(th, i) {{ colMap[th.innerText.trim()] = i; }});
-                  var wantedCols = [
-                    'Страна',
-                    'Кампания',
-                    '{camp_name_c}',
-                    'Список городов',
-                    'Показы', 'Клики', 'CTR %',
-                    'Установки',
-                    'Расходы ({client_currency})+НДС',
-                    'Расходы (RUB)+НДС'
-                  ];
-                  var wantedIdx = wantedCols.map(function(c) {{ return colMap[c]; }});
+                  var data = {_bunker2_json_c};
                   var table = document.createElement('table');
                   table.style.borderCollapse = 'collapse';
                   table.style.fontFamily = 'sans-serif';
                   table.style.fontSize = '13px';
-                  var rows = orig.querySelectorAll('tr');
-                  rows.forEach(function(row) {{
-                    var rowType = row.getAttribute('data-rowtype');
-                    if (!rowType || rowType === 'itogo') return;
-                    var cells = row.querySelectorAll('th, td');
+                  var currentCity = null;
+                  data.forEach(function(row) {{
                     var tr = document.createElement('tr');
-                    var bg = rowType === 'top3' ? '#d7ead9' : '#fff';
-                    wantedIdx.forEach(function(idx) {{
-                      if (idx === undefined) return;
+                    var cols = [
+                        row.country, row.campaign, row.creative, row.city,
+                        String(row.impressions),
+                        String(row.clicks),
+                        row.ctr.toFixed(2) + '%',
+                        String(row.installs),
+                        row.spend_vat.toFixed(2),
+                        row.spend_rub.toFixed(2),
+                        ];
+                    var textCols = [0, 1, 2, 3];
+                    cols.forEach(function(val, i) {{
                       var td = document.createElement('td');
-                      var raw = cells[idx] ? cells[idx].innerText : '';
-                      // Убираем .00 только у целых чисел (не у расходов)
-                      var colName = wantedCols[wantedIdx.indexOf(idx)];
-                      var isSpend = colName && (colName.indexOf('Расходы') !== -1);
-                      if (!isSpend) {{
-                        raw = raw.replace(/^([\d,\s]+)\.00$/, '$1').trim();
-                      }}
-                      td.innerText = raw;
+                      td.innerText = val;
                       td.style.border = '1px solid #ccc';
                       td.style.color = '#000';
-                      td.style.background = bg;
+                      td.style.background = '#fff';
                       td.style.padding = '5px 10px';
                       td.style.whiteSpace = 'nowrap';
+                      td.style.textAlign = textCols.indexOf(i) !== -1 ? 'left' : 'right';
                       tr.appendChild(td);
                     }});
                     table.appendChild(tr);
@@ -963,6 +988,7 @@ def load_insights_from_db(labels, start_date, end_date):
                 .in_("country_label", list(labels))\
                 .gte("date_start", str(start_date))\
                 .lte("date_start", str(end_date))\
+                .order("id")\
                 .range(offset, offset + page_size - 1)\
                 .execute()
             if not resp.data:
@@ -1011,6 +1037,7 @@ def load_creatives_from_db(labels, start_date, end_date):
                 .in_("country_label", list(labels))\
                 .gte("date_start", str(start_date))\
                 .lte("date_start", str(end_date))\
+                .order("id")\
                 .range(offset, offset + page_size - 1)\
                 .execute()
             if not resp.data:
@@ -1025,6 +1052,75 @@ def load_creatives_from_db(labels, start_date, end_date):
     except Exception as e:
         st.error(f"Ошибка загрузки макетов из базы: {e}")
         return None
+def load_dco_from_fb(account_id: str, campaign_name: str, since: str, until: str, vat_mult: float, rub_rate: float) -> pd.DataFrame:
+    """Загружает статистику DCO-кампании из FB с разбивкой по ассетам"""
+    try:
+        rows = []
+        url = f"https://graph.facebook.com/v19.0/act_{account_id}/insights"
+        params = {
+            "fields": "campaign_name,adset_id,adset_name,ad_name,ad_id,spend,impressions,clicks,inline_link_clicks,reach,actions",
+            "time_range": json.dumps({"since": since, "until": until}),
+            "level": "ad",
+            "breakdowns": "image_asset",
+            "filtering": json.dumps([{"field": "campaign.name", "operator": "EQUAL", "value": campaign_name}]),
+            "action_attribution_windows": "['7d_click','1d_view']",
+            "limit": 200,
+            "access_token": TOKEN,
+        }
+        while url:
+            resp = requests.get(url, params=params, timeout=60).json()
+            if "error" in resp:
+                st.warning(f"FB API ошибка: {resp['error'].get('message')}")
+                break
+            for row in resp.get("data", []):
+                image_asset = row.get("image_asset", {})
+                image_hash = image_asset.get("hash", "")
+                asset_name = image_asset.get("name", "") or image_hash
+                # Убираем расширение файла
+                asset_name = re.sub(r'\.(png|jpg|jpeg|webp).*$', '', asset_name, flags=re.IGNORECASE).strip()
+
+                actions = row.get("actions", [])
+                leads = 0
+                for action in actions:
+                    if action.get("action_type") in ("lead", "offsite_conversion.fb_pixel_lead", "mobile_app_install", "app_custom_event.fb_mobile_complete_registration"):
+                        try:
+                            leads = max(leads, int(float(action.get("value", 0))))
+                        except: pass
+
+                spend = float(row.get("spend", 0))
+                impressions = int(row.get("impressions", 0))
+                clicks = int(row.get("inline_link_clicks", 0))
+                if spend <= 0 and impressions <= 0 and clicks <= 0 and leads <= 0:
+                    continue
+
+                rows.append({
+                    "campaign_name":  row.get("campaign_name", ""),
+                    "adset_name":     row.get("adset_name", ""),
+                    "ad_name":        row.get("ad_name", ""),
+                    "ad_id":          row.get("ad_id", ""),
+                    "dco_asset_name": asset_name,
+                    "image_hash":     image_hash,
+                    "account_id":     account_id,
+                    "spend":          spend,
+                    "spend_rub":      spend * vat_mult * rub_rate,
+                    "spend_vat":      spend * vat_mult,
+                    "spend_vat_rub":  spend * vat_mult * rub_rate,
+                    "impressions":    impressions,
+                    "clicks":         clicks,
+                    "reach":          int(row.get("reach", 0)),
+                    "leads":          leads,
+                    "is_dco":         True,
+                    "adset_norm":     "",
+                })
+            url = resp.get("paging", {}).get("next")
+            params = {}
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame(rows)
+    except Exception as e:
+        st.warning(f"Ошибка загрузки DCO: {e}")
+        return pd.DataFrame()
+
 # Функция получения курса валют
 @st.cache_data(ttl=3600)
 def get_rates(base_currency):
@@ -1170,9 +1266,20 @@ else:
             st.session_state['all_accounts_cache_date'] = today_date
 
         if not st.session_state.get('all_accounts_data'):
-            resp = supabase.table("fb_insights_daily")\
-                .select("account_id, currency")\
-                .execute()
+            all_acc_rows = []
+            offset = 0
+            while True:
+                resp = supabase.table("fb_insights_daily")\
+                    .select("account_id, currency")\
+                    .range(offset, offset + 999)\
+                    .execute()
+                if not resp.data:
+                    break
+                all_acc_rows.extend(resp.data)
+                if len(resp.data) < 1000:
+                    break
+                offset += 1000
+            resp = type('obj', (object,), {'data': all_acc_rows})()
                 
 
             if not resp.data:
@@ -1204,6 +1311,7 @@ else:
         if not accounts_dict:
             st.warning("Нет аккаунтов в базе данных.")
             st.stop()
+            st.write("DEBUG accounts_dict keys:", list(accounts_dict.keys()))
         
     except Exception as e:
         st.error(f"Ошибка загрузки списка аккаунтов: {e}")
@@ -1232,24 +1340,9 @@ else:
             merged_accounts[target_group]['ids'].append(acc_info['id'])
         else:
             merged_accounts[acc_name] = {'ids': [acc_info['id']], 'currency': acc_info['currency']}
-            ACCOUNT_DISPLAY_NAMES = {
-        "AR": " Maxim Argentina",
-        "Azerbaijan AZ": "Maxim Azerbaijan",
-        "UZ": "Maxim Bulgaria",
-        "Brasil": "Maxim Brasil",
-        "Colombia": "Maxim Colombia",
-        "Georgia": "Maxim Georgia",
-        "Indonesia": "Maxim Indonesia",
-        "Philippines": "Maxim Philippines",
-        "Malaysia usd": "Maxim Malaysia",
-        "PE USD": "Maxim Peru",
-        "Thailand": "Maxim Thailand",
-        "Tanzania GMT": "Tanzania",
-        "Vietnam": "Maxim Vietnam",
-        "South Africa ZA": "Maxim South Africa",
-        "TH": "Maxim Dominican Republic",
-    }
-    merged_accounts = {ACCOUNT_DISPLAY_NAMES.get(k, k): v for k, v in merged_accounts.items()}
+
+    # Словарь не нужен — все названия уже правильные из ACCOUNT_LABELS
+    # Оставляем merged_accounts как есть
 
     # 4. НАСТРОЙКИ (САЙДБАР)
     with st.sidebar:
@@ -1271,6 +1364,12 @@ else:
             options=sorted_keys,
             default=[default_account] if default_account else []
         )
+
+        # Фильтр по цели — только для библиотеки креативов
+        if app_mode == "🖼️ Библиотека креативов":
+            goal_options = {"Все": None, "Водители": "exec", "Клиенты": "clnt"}
+            sel_goal = st.selectbox("Цель:", list(goal_options.keys()), key="lib_sel_goal")
+            st.session_state['lib_goal'] = goal_options[sel_goal]
         
         if not selected_labels:
             st.warning("Выберите хотя бы один рекламный аккаунт.")
@@ -1351,6 +1450,14 @@ else:
                         df_raw = load_creatives_from_db(selected_db_labels, start_date, end_date)
 
                         if df_raw is not None and not df_raw.empty:
+                            debug_info = []
+                            debug_info.append(f"📊 Загружено строк из БД: {len(df_raw)}")
+                            debug_info.append(f"📊 Запрошенные labels: {selected_db_labels}")
+                            debug_info.append(f"📊 Период запроса: {start_date} — {end_date}")
+                            ph_check = df_raw[df_raw['campaign_name'].str.contains('PH maxim exec Couriers May', case=False, na=False)]
+                            debug_info.append(f"📊 Строк по PH Couriers May: {len(ph_check)}, показы: {ph_check['impressions'].sum()}")
+                            debug_info.append(f"📊 Уникальные даты: {sorted(ph_check['date_start'].unique())}")
+                            st.session_state['debug_info'] = debug_info
                             # Исключаем кампании с нулевым расходом за весь период
                             camp_spend = df_raw.groupby('campaign_name')['spend_rub'].sum()
                             active_camps = camp_spend[camp_spend > 0].index
@@ -1376,11 +1483,128 @@ else:
                             df_raw['Затраты'] = df_raw['spend'].astype(float)
                             df_raw['vat_multiplier'] = df_raw['account_id'].astype(str).map(VAT_MAP).fillna(1.0)
                             df_raw['spend_vat'] = df_raw['spend'].astype(float) * df_raw['vat_multiplier']
-                            df_raw['spend_vat_rub'] = df_raw['Затраты (RUB)'].astype(float)
+                            # Переводим в рубли по актуальному курсу
+                            def get_rub_rate_app(currency):
+                                try:
+                                    resp = requests.get(f"https://open.er-api.com/v6/latest/{currency}", timeout=10).json()
+                                    if resp.get("result") == "success":
+                                        rate = resp["rates"].get("RUB", 0)
+                                        if rate > 0:
+                                            return rate
+                                except:
+                                    pass
+                                try:
+                                    resp = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=10).json()
+                                    rates = resp.get("rates", {})
+                                    usd_to_rub = rates.get("RUB", 0)
+                                    usd_to_curr = rates.get(currency, 0)
+                                    if usd_to_rub > 0 and usd_to_curr > 0:
+                                        return usd_to_rub / usd_to_curr
+                                except:
+                                    pass
+                                return 1.0
+                            if 'currency' in df_raw.columns:
+                                unique_currencies = df_raw['currency'].dropna().unique()
+                                currency_rates = {}
+                                for cur in unique_currencies:
+                                    currency_rates[cur] = get_rub_rate_app(cur)
+                                df_raw['rub_rate'] = df_raw['currency'].map(currency_rates).fillna(1.0)
+                                df_raw['spend_vat_rub'] = df_raw['spend'].astype(float) * df_raw['vat_multiplier'] * df_raw['rub_rate']
+                            else:
+                                df_raw['spend_vat_rub'] = df_raw['Затраты (RUB)'].astype(float)
+
+                            # Для spend_vat берём из БД spend_vat если есть, иначе считаем через курс
+                            if 'spend_vat' in df_raw.columns and 'spend_vat_rub' not in df_raw.columns:
+                                pass
+                            # spend_vat должен быть в локальной валюте с НДС — это правильно
+                            # spend_vat_rub = spend_rub * vat_mult — рубли с НДС
                             df_raw['Показы']  = df_raw['impressions'].astype(int)
                             df_raw['Клики']   = df_raw['clicks'].astype(int)
                             df_raw['adset_norm'] = df_raw['adset_name'].apply(normalize_adset)
                             df_raw['Макет'] = df_raw['ad_name'].apply(clean_creative_name)
+                            # Для DCO-кампаний загружаем данные из FB напрямую
+                            DCO_ACCOUNT_PATTERNS = {
+                                "2727239577416075": ["exec lal"],           # Thailand
+                                "830039013207696":  ["exec lal", "za maxim exec"],  # South Africa
+                            }
+
+                            def is_dco_camp(name, account_id=None):
+                                if account_id:
+                                    patterns = DCO_ACCOUNT_PATTERNS.get(str(account_id), [])
+                                else:
+                                    # Если account_id не передан — проверяем по всем паттернам всех DCO-аккаунтов
+                                    patterns = [p for ps in DCO_ACCOUNT_PATTERNS.values() for p in ps]
+                                n = str(name).lower()
+                                return any(p in n for p in patterns)
+
+                            dco_camps = df_raw[df_raw.apply(
+                                lambda r: is_dco_camp(r['campaign_name'], r.get('account_id')), axis=1
+                            )]['campaign_name'].unique()
+                            # Дополнительно: всегда запрашиваем DCO-кампании из FB напрямую по паттернам
+                            ALWAYS_DCO_ACCOUNTS = {
+                                "2727239577416075": ["exec lal"],                    # Thailand
+                                "830039013207696":  ["exec lal", "za maxim exec"],   # South Africa
+                            }
+                            extra_dco_camps = []
+                            for acc_id, patterns in ALWAYS_DCO_ACCOUNTS.items():
+                                if acc_id not in [i for lbl in selected_labels for i in merged_accounts.get(lbl, {}).get('ids', [])]:
+                                    continue
+                                try:
+                                    camps_resp = requests.get(
+                                        f"https://graph.facebook.com/v19.0/act_{acc_id}/campaigns",
+                                        params={"fields": "name", "limit": 200, "access_token": TOKEN},
+                                        timeout=30
+                                    ).json()
+                                    for fb_camp in camps_resp.get("data", []):
+                                        fb_name = fb_camp["name"]
+                                        if any(p.lower() in fb_name.lower() for p in patterns):
+                                            if fb_name not in list(dco_camps):
+                                                extra_dco_camps.append((acc_id, fb_name))
+                                except Exception as e:
+                                    st.warning(f"Ошибка получения кампаний FB для {acc_id}: {e}")
+
+                            dco_camps = list(dco_camps)
+                            if len(dco_camps) > 0 or len(extra_dco_camps) > 0:
+                                # Убираем DCO-кампании из обычных данных
+                                df_raw = df_raw[~df_raw['campaign_name'].apply(is_dco_camp)]
+                                # Загружаем DCO из FB
+                                since_str = str(start_date)
+                                until_str = str(end_date)
+                                dco_frames = []
+                                all_dco_to_load = [(None, camp) for camp in dco_camps] + extra_dco_camps
+                                for (forced_acc_id, camp) in all_dco_to_load:
+                                    for label in selected_labels:
+                                        for acc_id in merged_accounts[label]['ids']:
+                                            if forced_acc_id and acc_id != forced_acc_id:
+                                                continue
+                                            db_label = ACCOUNT_LABELS.get(acc_id, "")
+                                            if "Thailand" in db_label or "South Africa" in db_label:
+                                                vat = VAT_MAP.get(acc_id, 1.0)
+                                                rates = get_rates(merged_accounts[label]['currency'])
+                                                rub_r = rates.get("RUB", 1.0) if rates else 1.0
+                                                df_dco = load_dco_from_fb(acc_id, camp, since_str, until_str, vat, rub_r)
+                                                if not df_dco.empty:
+                                                    df_dco['Страна'] = db_label
+                                                    df_dco['Затраты (RUB)'] = df_dco['spend_rub']
+                                                    df_dco['Результаты'] = df_dco['leads']
+                                                    df_dco['Показы'] = df_dco['impressions']
+                                                    df_dco['Клики'] = df_dco['clicks']
+                                                    df_dco['Затраты'] = df_dco['spend']
+                                                    df_dco['vat_multiplier'] = vat
+                                                    df_dco['adset_norm'] = 'allcity'
+                                                    df_dco['Макет'] = df_dco['dco_asset_name']
+                                                    df_dco['Название группы'] = df_dco['adset_name'].apply(clean_campaign_name)
+                                                    df_dco['campaign_name_clean'] = df_dco['campaign_name'].apply(clean_campaign_name)
+                                                    dco_frames.append(df_dco)
+                                if dco_frames:
+                                    df_dco_all = pd.concat(dco_frames, ignore_index=True)
+                                    df_raw = pd.concat([df_raw, df_dco_all], ignore_index=True)
+                            # Убираем обычные строки для ad_id которые являются DCO
+                            if 'is_dco' in df_raw.columns:
+                                dco_ad_ids = set(df_raw[df_raw['is_dco'] == True]['ad_id'].dropna())
+                                df_raw = df_raw[
+                                    ~((df_raw['ad_id'].isin(dco_ad_ids)) & (df_raw['is_dco'] == False))
+                                ]
                             df_raw['Название группы'] = df_raw['adset_name'].apply(clean_campaign_name)
                             df_raw['campaign_name_clean'] = df_raw['campaign_name'].apply(clean_campaign_name)
 
@@ -1420,7 +1644,11 @@ else:
         
         with st.sidebar:
 
-            df_ads_cat = df_ads
+            goal_filter = st.session_state.get('lib_goal')
+            if goal_filter:
+                df_ads_cat = df_ads[df_ads['campaign_name'].str.contains(goal_filter, case=False, na=False)]
+            else:
+                df_ads_cat = df_ads
 
             all_camps = sorted(df_ads_cat['campaign_name_clean'].unique().tolist())
             sel_camps = st.multiselect("Кампания:", all_camps, default=all_camps, key="lib_sel_c")
@@ -1492,7 +1720,25 @@ else:
                     agg_dict['spend_vat'] = 'sum'
                 if 'spend_vat_rub' in df_c.columns:
                     agg_dict['spend_vat_rub'] = 'sum'
-                table_data = df_c.groupby('Макет').agg(agg_dict).reset_index()
+                # Для DCO-строк группируем по dco_asset_name, для обычных — по Макету
+                if 'is_dco' in df_c.columns and df_c['is_dco'].any():
+                    df_c_normal = df_c[~df_c['is_dco'].fillna(False)]
+                    df_c_dco    = df_c[df_c['is_dco'].fillna(False)]
+
+                    parts = []
+                    if not df_c_normal.empty:
+                        t_normal = df_c_normal.groupby('Макет').agg(agg_dict).reset_index()
+                        parts.append(t_normal)
+                    if not df_c_dco.empty:
+                        agg_dict_dco = {k: v for k, v in agg_dict.items() if k != 'ad_id'}
+                        agg_dict_dco['ad_id'] = 'first'
+                        t_dco = df_c_dco.groupby('dco_asset_name').agg(agg_dict_dco).reset_index()
+                        t_dco = t_dco.rename(columns={'dco_asset_name': 'Макет'})
+                        t_dco['Макет'] = t_dco['Макет'].astype(str)
+                        parts.append(t_dco)
+                    table_data = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+                else:
+                    table_data = df_c.groupby('Макет').agg(agg_dict).reset_index()
                 if 'spend_vat' not in table_data.columns:
                     table_data['spend_vat'] = 0.0
                 if 'spend_vat_rub' not in table_data.columns:
@@ -1686,6 +1932,29 @@ else:
                 # Шапка
                 # Определяем код страны из названия кампании (первые 2 буквы)
                 country_code = camp_name.strip()[:2].upper()
+
+                # Данные для бункера 2 с разбивкой по городам
+                import json as _json
+                _city_agg = df_c.groupby(['adset_norm', 'Макет']).agg({
+                    'Показы': 'sum', 'Клики': 'sum', 'Результаты': 'sum',
+                    'spend_vat': 'sum', 'spend_vat_rub': 'sum',
+                }).reset_index()
+                _city_agg['CTR %'] = (_city_agg['Клики'] / _city_agg['Показы'] * 100).fillna(0)
+                _cities_sorted = sorted([c for c in _city_agg['adset_norm'].unique() if c != 'allcity'])
+                if 'allcity' in _city_agg['adset_norm'].values:
+                    _cities_sorted.append('allcity')
+                _b2rows = []
+                for _city in _cities_sorted:
+                    for _, _r in _city_agg[_city_agg['adset_norm'] == _city].iterrows():
+                        _b2rows.append({
+                            'country': country_code, 'campaign': camp_name, 'city': _city,
+                            'creative': str(_r['Макет']),
+                            'impressions': int(_r['Показы']), 'clicks': int(_r['Клики']),
+                            'ctr': round(float(_r['CTR %']), 2), 'results': int(_r['Результаты']),
+                            'spend_vat': round(float(_r['spend_vat']), 2),
+                            'spend_vat_rub': round(float(_r['spend_vat_rub']), 2),
+                        })
+                _bunker2_json = _json.dumps(_b2rows, ensure_ascii=False)
                 header_cells = ''.join([f'<th style="padding:6px 10px;text-align:left;border:1px solid var(--border-color);background:var(--header-bg);color:var(--text-color);font-weight:bold;white-space:nowrap;">{COL_DISPLAY_NAMES.get(c, c)}</th>' for c in cols_to_show])
                 html_rows.append(f'<tr><th class="col-country" style="display:none;">Страна</th><th class="col-campname" style="display:none;">Кампания</th>{header_cells}</tr>')
 
@@ -1750,9 +2019,10 @@ else:
                 }} catch(e) {{}}
 
                 function buildClone(excludeCols) {{
-                  var orig = document.getElementById('tbl_{camp_name}');
-                  var clone = orig.cloneNode(true);
-                  if (excludeCols && excludeCols.length > 0) {{
+                    var orig = document.getElementById('tbl_{camp_name}');
+                    var clone = orig.cloneNode(true);
+                    clone.querySelectorAll('.col-country, .col-campname').forEach(function(el) {{ el.remove(); }});
+                    if (excludeCols && excludeCols.length > 0) {{
                     var headers = clone.querySelectorAll('tr')[0].querySelectorAll('th');
                     var colIndexes = [];
                     headers.forEach(function(th, i) {{
@@ -1782,7 +2052,7 @@ else:
                   return clone;
                 }}
                 function copyTable() {{
-                  var clone = buildClone([]);
+                    var clone = buildClone(['Расходы ({curr})+НДС', 'Расходы (RUB)+НДС']);
                   var blob = new Blob([clone.outerHTML], {{type: 'text/html'}});
                   navigator.clipboard.write([new ClipboardItem({{'text/html': blob}})]).then(function() {{
                     var btn = document.getElementById('btnCopy_{camp_name}');
@@ -1800,48 +2070,33 @@ else:
                   }}).catch(function(e) {{ alert('Ошибка: ' + e); }});
                 }}
                 function copyTableBunker2() {{
-                  var orig = document.getElementById('tbl_{camp_name}');
-                  var headers = orig.querySelectorAll('tr')[0].querySelectorAll('th');
-                  var colMap = {{}};
-                  headers.forEach(function(th, i) {{ colMap[th.innerText.trim()] = i; }});
-                  var wantedCols = [
-                    'Страна',
-                    'Кампания',
-                    '{camp_name}',
-                    'Список городов',
-                    'Показы', 'Клики', 'CTR %',
-                    'Результаты',
-                    'Расходы ({curr})+НДС',
-                    'Расходы (RUB)+НДС'
-                  ];
-                  var wantedIdx = wantedCols.map(function(c) {{ return colMap[c]; }});
+                  var data = {_bunker2_json};
                   var table = document.createElement('table');
                   table.style.borderCollapse = 'collapse';
                   table.style.fontFamily = 'sans-serif';
                   table.style.fontSize = '13px';
-                  var rows = orig.querySelectorAll('tr');
-                  rows.forEach(function(row) {{
-                    var rowType = row.getAttribute('data-rowtype');
-                    if (!rowType || rowType === 'itogo') return;
-                    var cells = row.querySelectorAll('th, td');
+                  var currentCity = null;
+                  data.forEach(function(row) {{
                     var tr = document.createElement('tr');
-                    var bg = rowType === 'top3' ? '#d7ead9' : '#fff';
-                    wantedIdx.forEach(function(idx) {{
-                      if (idx === undefined) return;
+                    var cols = [
+                      row.country, row.campaign, row.creative, row.city,
+                      String(row.impressions),
+                      String(row.clicks),
+                      row.ctr.toFixed(2) + '%',
+                      String(row.results),
+                      row.spend_vat.toFixed(2),
+                      row.spend_vat_rub.toFixed(2),
+                    ];
+                    var textCols = [0, 1, 2, 3];
+                    cols.forEach(function(val, i) {{
                       var td = document.createElement('td');
-                      var raw = cells[idx] ? cells[idx].innerText : '';
-                      var raw = cells[idx] ? cells[idx].innerText : '';
-                      var colName = wantedCols[wantedIdx.indexOf(idx)];
-                      var isSpend = colName && (colName.indexOf('Расходы') !== -1);
-                      if (!isSpend) {{
-                        raw = raw.replace(/^([\d,\s]+)\.00$/, '$1').trim();
-                      }}
-                      td.innerText = raw;
+                      td.innerText = val;
                       td.style.border = '1px solid #ccc';
                       td.style.color = '#000';
-                      td.style.background = bg;
+                      td.style.background = '#fff';
                       td.style.padding = '5px 10px';
                       td.style.whiteSpace = 'nowrap';
+                      td.style.textAlign = textCols.indexOf(i) !== -1 ? 'left' : 'right';
                       tr.appendChild(td);
                     }});
                     table.appendChild(tr);
@@ -1874,7 +2129,30 @@ else:
                     # Сохраняем порядок как в таблице
                     table_order = list(full_table[camp_name].values[:-1])  # без ИТОГО
                     camp_country_code = camp_name.strip()[:2].upper() if camp_name else None
-                    td = df_c.groupby('Макет').agg({'ad_id': 'first', 'ad_name': 'first'}).reset_index()
+                    agg_gallery = {'ad_id': 'first', 'ad_name': 'first'}
+                    if 'image_hash' in df_c.columns:
+                        agg_gallery['image_hash'] = 'first'
+                    if 'account_id' in df_c.columns:
+                        agg_gallery['account_id'] = 'first'
+                    if '_is_dco_row' in df_c.columns:
+                        agg_gallery['_is_dco_row'] = 'first'
+
+                    # DCO-строки группируем по dco_asset_name
+                    if 'is_dco' in df_c.columns and df_c['is_dco'].any():
+                        df_c_n = df_c[~df_c['is_dco'].fillna(False)]
+                        df_c_d = df_c[df_c['is_dco'].fillna(False)]
+                        parts_gal = []
+                        if not df_c_n.empty:
+                            parts_gal.append(df_c_n.groupby('Макет').agg(agg_gallery).reset_index())
+                        if not df_c_d.empty:
+                            t_d = df_c_d.groupby('dco_asset_name').agg(agg_gallery).reset_index()
+                            t_d = t_d.rename(columns={'dco_asset_name': 'Макет'})
+                            t_d['Макет'] = t_d['Макет'].astype(str)
+                            t_d['_is_dco_row'] = True
+                            parts_gal.append(t_d)
+                        td = pd.concat(parts_gal, ignore_index=True) if parts_gal else pd.DataFrame()
+                    else:
+                        td = df_c.groupby('Макет').agg(agg_gallery).reset_index()
                     td['_order'] = td['Макет'].apply(lambda x: table_order.index(x) if x in table_order else 9999)
                     td = td.sort_values('_order').drop(columns=['_order']).reset_index(drop=True)
                     gallery_items = []
@@ -1885,6 +2163,28 @@ else:
                         if not row['ad_id']:
                             gallery_items.append({'name': row['Макет'], 'img_url': None, 'is_video': False, 'video_src': None})
                             continue
+                        # DCO: ищем превью по image_hash напрямую
+                        if row.get('_is_dco_row') and row.get('image_hash') and row.get('account_id'):
+                            try:
+                                hr = requests.get(
+                                    f"https://graph.facebook.com/v19.0/act_{row['account_id']}/adimages",
+                                    params={
+                                        "hashes": json.dumps([row['image_hash']]),
+                                        "fields": "url",
+                                        "access_token": TOKEN,
+                                    },
+                                    timeout=20,
+                                ).json()
+                                img_url = hr.get('data', [{}])[0].get('url') if hr.get('data') else None
+                                gallery_items.append({
+                                    'name': row['Макет'],
+                                    'img_url': img_url,
+                                    'is_video': False,
+                                    'video_src': None,
+                                })
+                                continue  # пропускаем стандартный FB-поиск
+                            except Exception:
+                                pass
                         try:
                             ad_res = requests.get(
                                 f"https://graph.facebook.com/v19.0/{row['ad_id']}"
