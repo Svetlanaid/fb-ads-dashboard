@@ -360,20 +360,20 @@ if main_tab == "Клиенты":
             name = re.sub(r'[_-]?\d+\s*[xх]\s*\d+.*$', '', name, flags=re.IGNORECASE)
             name = re.sub(r'[xх]\d+.*$', '', name, flags=re.IGNORECASE)
             name = re.sub(r'[_-]\d+(?!\s*(?:заказ|поездк|водител|клиент)).*$', '', name)
+            
+            # Защита буквы "к"
             name = re.sub(r'\d+\s*[кkKК](?![а-яА-Яa-zA-Z])', '', name, flags=re.IGNORECASE)
             name = re.sub(r'[\d.,]*\s*млн\.?', '', name, flags=re.IGNORECASE)
             name = re.sub(r'\bмлн\b', '', name, flags=re.IGNORECASE)
-            name = re.sub(r'(cost|sal|fee)\s*\d+\s*', lambda m: m.group(1) + ' ', name, flags=re.IGNORECASE)
+            
+            # 🔥 УМНОЕ удаление цифр после cost/sal/fee: сохраняет _ если он был, иначе ставит пробел
+            name = re.sub(r'(cost|sal|fee)[_\s]*[\d.,]+([_\s]*)', lambda m: m.group(1) + (m.group(2) if m.group(2) else ' '), name, flags=re.IGNORECASE)
+            
             name = name.strip()
             name = re.sub(r'(exec)(O|0)(?=\b|_|\s)', r'\1O', name, flags=re.IGNORECASE)
             name = re.sub(r'[-_]{2,}', '_', name)
             name = re.sub(r'\s{2,}', ' ', name).strip()
             name = re.sub(r'[_-]+$', '', name)
-            
-            # 🔥 ВОЗВРАЩАЕМ БУКВЫ И УБИРАЕМ ПОДЧЕРКИВАНИЕ В САМОМ КОНЦЕ
-            name = re.sub(r'cost\s*_*\s*к?арта', 'cost карта', name, flags=re.IGNORECASE)
-            name = re.sub(r'cost\s*_*\s*й', 'cost й', name, flags=re.IGNORECASE)
-            
             return name.strip() or "Unknown creative"
 
         def clean_cost(name):
@@ -381,18 +381,14 @@ if main_tab == "Клиенты":
             name = re.sub(r'\.(png|jpg|jpeg).*$', '', name, flags=re.IGNORECASE)
             name = re.sub(r'_\d{3,}', '', name)
             name = re.sub(r'\([^)]*\)', '', name)
-            name = re.sub(r'(cost)\s*[\d.,]+\s*', lambda m: m.group(1), name, flags=re.IGNORECASE)
-            name = re.sub(r'(cost)\s*\.\d+\s*', lambda m: m.group(1), name, flags=re.IGNORECASE)
+            
+            # 🔥 УМНОЕ удаление цифр после cost
+            name = re.sub(r'(cost|sal|fee)[_\s]*[\d.,]+([_\s]*)', lambda m: m.group(1) + (m.group(2) if m.group(2) else ' '), name, flags=re.IGNORECASE)
+            
             name = re.sub(r'(cost)\s+(_)', lambda m: m.group(1) + m.group(2), name, flags=re.IGNORECASE)
-            name = re.sub(r'(cost)\s+(\w)', lambda m: m.group(1) + '_' + m.group(2), name, flags=re.IGNORECASE)
             name = name.strip()
             name = re.sub(r'\b\d{2,}\b', '', name)
             name = re.sub(r'\s{2,}', ' ', name).strip()
-            
-            # 🔥 ВОЗВРАЩАЕМ БУКВЫ И УБИРАЕМ ПОДЧЕРКИВАНИЕ В САМОМ КОНЦЕ
-            name = re.sub(r'cost\s*_*\s*к?арта', 'cost карта', name, flags=re.IGNORECASE)
-            name = re.sub(r'cost\s*_*\s*й', 'cost й', name, flags=re.IGNORECASE)
-            
             return name
 
         df_clients['Макет_raw'] = df_clients['ad_name'].apply(lambda x: clean_creative_name_local(str(x or "")))
@@ -1173,11 +1169,16 @@ def clean_creative_name(name):
     name = re.sub(r'[_-]?\d+\s*[xх]\s*\d+.*$', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[xх]\d+.*$', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[_-]\d+.*$', '', name)
+    
+    # Защита буквы "к"
     name = re.sub(r'\d+\s*[кkKК](?![а-яА-Яa-zA-Z])', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[\d.,]*\s*млн\.?', '', name, flags=re.IGNORECASE)
     name = re.sub(r'\bмлн\b', '', name, flags=re.IGNORECASE)
     name = re.sub(r'(заработок)\s*[\d.,]+(?:\s*[кkмm][а-я]*)?', r'\1', name, flags=re.IGNORECASE)
-    name = re.sub(r'(cost|sal|fee)\s*\d+\s*', lambda m: m.group(1) + ' ', name, flags=re.IGNORECASE)
+    
+    # 🔥 УМНОЕ удаление цифр после cost/sal/fee
+    name = re.sub(r'(cost|sal|fee)[_\s]*[\d.,]+([_\s]*)', lambda m: m.group(1) + (m.group(2) if m.group(2) else ' '), name, flags=re.IGNORECASE)
+    
     name = name.strip()
     name = re.sub(r'(exec)(O|0)(?=\b|_|\s)', r'\1O', name, flags=re.IGNORECASE)
     name = re.sub(r'(?:до\s*)?\d[\d\s.,]*\s*(?:₽|руб\.?|р\.?)?\s*(?=в\s*(?:месяц|неделю|день|год|час|смену)\b)', '', name, flags=re.IGNORECASE)
@@ -1185,14 +1186,11 @@ def clean_creative_name(name):
     name = re.sub(r'[-_]{2,}', '_', name)
     name = re.sub(r'\s{2,}', ' ', name).strip()
     name = re.sub(r'[_-]+$', '', name)
+    
     keep_with_china = ["Авто бонус за брендировку _китай", "Авто заработок в месяц девушка 4 _китай", "Авто заработок в месяц красный фон _китай", "Авто заработок в месяц аниме _китай"]
     if name not in keep_with_china:
         name = re.sub(r'_китай', '', name, flags=re.IGNORECASE)
         
-    # 🔥 ВОЗВРАЩАЕМ БУКВЫ И УБИРАЕМ ПОДЧЕРКИВАНИЕ В САМОМ КОНЦЕ
-    name = re.sub(r'cost\s*_*\s*к?арта', 'cost карта', name, flags=re.IGNORECASE)
-    name = re.sub(r'cost\s*_*\s*й', 'cost й', name, flags=re.IGNORECASE)
-    
     return name.strip() or "Unknown creative"
 # --- ОСНОВНАЯ ЛОГИКА ---
 
