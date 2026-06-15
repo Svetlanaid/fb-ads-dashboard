@@ -320,9 +320,9 @@ if main_tab == "Клиенты":
             name = str(name or "").strip()
             name = re.sub(r'\b\d{1,2}[./-]\d{1,2}\b', '', name)
             name = re.sub(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|январь|февраль|март|апрель|май|июнь|июль|август|сентябрь|октябрь|ноябрь|декабрь)\b', '', name, flags=re.IGNORECASE)
-            name = re.sub(r'\b(copy|trg|target)\b', '', name, flags=re.IGNORECASE)
+            # Добавили install:
+            name = re.sub(r'\b(copy|trg|target|install)\b', '', name, flags=re.IGNORECASE)
             name = re.sub(r'[-–—_.]', ' ', name)
-            # Если это allcity, НЕ удаляем цифры. Регистр не занижаем!
             if 'allcity' not in name.lower():
                 name = re.sub(r'\d+', '', name)
             return re.sub(r'\s{2,}', ' ', name).strip()
@@ -359,21 +359,21 @@ if main_tab == "Клиенты":
             name = re.sub(r'\.(png|jpg|jpeg).*$', '', name, flags=re.IGNORECASE)
             name = re.sub(r'[_-]?\d+\s*[xх]\s*\d+.*$', '', name, flags=re.IGNORECASE)
             name = re.sub(r'[xх]\d+.*$', '', name, flags=re.IGNORECASE)
-            # Не режем если после числа идёт слово-количество
             name = re.sub(r'[_-]\d+(?!\s*(?:заказ|поездк|водител|клиент)).*$', '', name)
-            # Запрещаем удалять букву "к", если она является началом нормального слова (например "карта")
             name = re.sub(r'\d+\s*[кkKК](?![а-яА-Яa-zA-Z])', '', name, flags=re.IGNORECASE)
             name = re.sub(r'[\d.,]*\s*млн\.?', '', name, flags=re.IGNORECASE)
             name = re.sub(r'\bмлн\b', '', name, flags=re.IGNORECASE)
             name = re.sub(r'(cost|sal|fee)\s*\d+\s*', lambda m: m.group(1) + ' ', name, flags=re.IGNORECASE)
             name = name.strip()
-            # Жестко возвращаем потерянные буквы, если они слиплись
-            name = re.sub(r'costарта', 'cost карта', name, flags=re.IGNORECASE)
-            name = re.sub(r'costй', 'cost й', name, flags=re.IGNORECASE)
             name = re.sub(r'(exec)(O|0)(?=\b|_|\s)', r'\1O', name, flags=re.IGNORECASE)
             name = re.sub(r'[-_]{2,}', '_', name)
             name = re.sub(r'\s{2,}', ' ', name).strip()
             name = re.sub(r'[_-]+$', '', name)
+            
+            # 🔥 ВОЗВРАЩАЕМ БУКВЫ И УБИРАЕМ ПОДЧЕРКИВАНИЕ В САМОМ КОНЦЕ
+            name = re.sub(r'cost\s*_*\s*к?арта', 'cost карта', name, flags=re.IGNORECASE)
+            name = re.sub(r'cost\s*_*\s*й', 'cost й', name, flags=re.IGNORECASE)
+            
             return name.strip() or "Unknown creative"
 
         def clean_cost(name):
@@ -388,6 +388,11 @@ if main_tab == "Клиенты":
             name = name.strip()
             name = re.sub(r'\b\d{2,}\b', '', name)
             name = re.sub(r'\s{2,}', ' ', name).strip()
+            
+            # 🔥 ВОЗВРАЩАЕМ БУКВЫ И УБИРАЕМ ПОДЧЕРКИВАНИЕ В САМОМ КОНЦЕ
+            name = re.sub(r'cost\s*_*\s*к?арта', 'cost карта', name, flags=re.IGNORECASE)
+            name = re.sub(r'cost\s*_*\s*й', 'cost й', name, flags=re.IGNORECASE)
+            
             return name
 
         df_clients['Макет_raw'] = df_clients['ad_name'].apply(lambda x: clean_creative_name_local(str(x or "")))
@@ -1163,7 +1168,6 @@ def clean_creative_name(name):
     name = re.sub(r'\.(png|jpg|jpeg).*$', '', name, flags=re.IGNORECASE)
     name = re.sub(r'_\d{3,}', '', name)
     name = re.sub(r'\([^)]*\)', '', name)
-    # Не трогаем числа перед словами-количествами (заказов, поездок, водителей и т.д.)
     name = re.sub(r'\b\d{2,}\b(?!\s*(?:заказ|поездк|водител|клиент|пассажир|машин|авто))', '', name)
     name = re.sub(r'\.(png|jpg|jpeg).*$', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[_-]?\d+\s*[xх]\s*\d+.*$', '', name, flags=re.IGNORECASE)
@@ -1175,9 +1179,6 @@ def clean_creative_name(name):
     name = re.sub(r'(заработок)\s*[\d.,]+(?:\s*[кkмm][а-я]*)?', r'\1', name, flags=re.IGNORECASE)
     name = re.sub(r'(cost|sal|fee)\s*\d+\s*', lambda m: m.group(1) + ' ', name, flags=re.IGNORECASE)
     name = name.strip()
-    # Восстанавливаем буквы для общей базы
-    name = re.sub(r'costарта', 'cost карта', name, flags=re.IGNORECASE)
-    name = re.sub(r'costй', 'cost й', name, flags=re.IGNORECASE)
     name = re.sub(r'(exec)(O|0)(?=\b|_|\s)', r'\1O', name, flags=re.IGNORECASE)
     name = re.sub(r'(?:до\s*)?\d[\d\s.,]*\s*(?:₽|руб\.?|р\.?)?\s*(?=в\s*(?:месяц|неделю|день|год|час|смену)\b)', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[_ ,]+(Emalahleni|Mbombela|Middelburg|Kimberley|Potchefstroom|Bloemfontein|Klerksdorp|Cape\s*Town|Polokwane|Welkom)', '', name, flags=re.IGNORECASE)
@@ -1187,6 +1188,11 @@ def clean_creative_name(name):
     keep_with_china = ["Авто бонус за брендировку _китай", "Авто заработок в месяц девушка 4 _китай", "Авто заработок в месяц красный фон _китай", "Авто заработок в месяц аниме _китай"]
     if name not in keep_with_china:
         name = re.sub(r'_китай', '', name, flags=re.IGNORECASE)
+        
+    # 🔥 ВОЗВРАЩАЕМ БУКВЫ И УБИРАЕМ ПОДЧЕРКИВАНИЕ В САМОМ КОНЦЕ
+    name = re.sub(r'cost\s*_*\s*к?арта', 'cost карта', name, flags=re.IGNORECASE)
+    name = re.sub(r'cost\s*_*\s*й', 'cost й', name, flags=re.IGNORECASE)
+    
     return name.strip() or "Unknown creative"
 # --- ОСНОВНАЯ ЛОГИКА ---
 
@@ -1473,7 +1479,8 @@ else:
                                 name = str(name).strip()
                                 name = re.sub(r'\b\d{1,2}[./-]\d{1,2}\b', '', name)
                                 name = re.sub(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|январь|февраль|март|апрель|май|июнь|июль|август|сентябрь|октябрь|ноябрь|декабрь)\b', '', name, flags=re.IGNORECASE)
-                                name = re.sub(r'\b(copy|trg|target)\b', '', name, flags=re.IGNORECASE)
+                                # Добавили install:
+                                name = re.sub(r'\b(copy|trg|target|install)\b', '', name, flags=re.IGNORECASE)
                                 name = re.sub(r'\+?\s*truck', '', name, flags=re.IGNORECASE)
                                 name = re.sub(r'[-–—_.]', ' ', name)
                                 if 'allcity' not in name.lower():
