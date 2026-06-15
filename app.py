@@ -317,14 +317,14 @@ if main_tab == "Клиенты":
             return name
 
         def norm_adset_clients(name):
-            name = str(name or "").lower().strip()
-            if 'allcity' in name:
-                return 'allcity'
-            name = re.sub(r'\d{1,2}[./-]\d{1,2}', '', name)
-            name = re.sub(r'\d+', '', name)
-            name = re.sub(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b', '', name)
-            name = re.sub(r'\b(copy|trg|target)\b', '', name)
+            name = str(name or "").strip()
+            name = re.sub(r'\b\d{1,2}[./-]\d{1,2}\b', '', name)
+            name = re.sub(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|январь|февраль|март|апрель|май|июнь|июль|август|сентябрь|октябрь|ноябрь|декабрь)\b', '', name, flags=re.IGNORECASE)
+            name = re.sub(r'\b(copy|trg|target)\b', '', name, flags=re.IGNORECASE)
             name = re.sub(r'[-–—_.]', ' ', name)
+            # Если это allcity, НЕ удаляем цифры. Регистр не занижаем!
+            if 'allcity' not in name.lower():
+                name = re.sub(r'\d+', '', name)
             return re.sub(r'\s{2,}', ' ', name).strip()
 
         df_clients['campaign_clean'] = df_clients['campaign_name'].apply(norm_campaign_clients)
@@ -361,12 +361,15 @@ if main_tab == "Клиенты":
             name = re.sub(r'[xх]\d+.*$', '', name, flags=re.IGNORECASE)
             # Не режем если после числа идёт слово-количество
             name = re.sub(r'[_-]\d+(?!\s*(?:заказ|поездк|водител|клиент)).*$', '', name)
-            name = re.sub(r'\d+\s*[кk]', '', name, flags=re.IGNORECASE)
+            # Запрещаем удалять букву "к", если она является началом нормального слова (например "карта")
+            name = re.sub(r'\d+\s*[кkKК](?![а-яА-Яa-zA-Z])', '', name, flags=re.IGNORECASE)
             name = re.sub(r'[\d.,]*\s*млн\.?', '', name, flags=re.IGNORECASE)
             name = re.sub(r'\bмлн\b', '', name, flags=re.IGNORECASE)
-            # Стираем только цифры и один пробел после cost/sal/fee, буквы не трогаем
             name = re.sub(r'(cost|sal|fee)\s*\d+\s*', lambda m: m.group(1) + ' ', name, flags=re.IGNORECASE)
             name = name.strip()
+            # Жестко возвращаем потерянные буквы, если они слиплись
+            name = re.sub(r'costарта', 'cost карта', name, flags=re.IGNORECASE)
+            name = re.sub(r'costй', 'cost й', name, flags=re.IGNORECASE)
             name = re.sub(r'(exec)(O|0)(?=\b|_|\s)', r'\1O', name, flags=re.IGNORECASE)
             name = re.sub(r'[-_]{2,}', '_', name)
             name = re.sub(r'\s{2,}', ' ', name).strip()
@@ -473,14 +476,14 @@ if main_tab == "Клиенты":
                 table_c = table_c.rename(columns={'adset_norm': 'cities_set'})
 
                 def format_cities_local(cities_set):
-                    has_allcity = 'allcity' in cities_set
-                    regular = len([c for c in cities_set if c != 'allcity' and c != ''])
-                    if regular > 0 and has_allcity:
-                        return f"{regular}+allcity"
+                    allcity_items = sorted([c for c in cities_set if 'allcity' in str(c).lower()])
+                    regular = len([c for c in cities_set if 'allcity' not in str(c).lower() and c != ''])
+                    if regular > 0 and allcity_items:
+                        return f"{regular}+" + "+".join(allcity_items)
                     elif regular > 0:
                         return str(regular)
-                    elif has_allcity:
-                        return "allcity"
+                    elif allcity_items:
+                        return "+".join(allcity_items)
                     return ""
 
                 table_c['Города'] = table_c['cities_set'].apply(format_cities_local)
@@ -564,9 +567,9 @@ if main_tab == "Клиенты":
                 if 'Результаты' in _city_agg_c.columns:
                     _city_agg_c = _city_agg_c.rename(columns={'Результаты': 'Установки'})
                 _city_agg_c['CTR %'] = (_city_agg_c['Клики'] / _city_agg_c['Показы'] * 100).fillna(0)
-                _cities_sorted_c = sorted([c for c in _city_agg_c['adset_norm'].unique() if c != 'allcity'])
-                if 'allcity' in _city_agg_c['adset_norm'].values:
-                    _cities_sorted_c.append('allcity')
+                _cities_sorted_c = sorted([c for c in _city_agg_c['adset_norm'].unique() if 'allcity' not in str(c).lower()])
+                allcity_variants_c = sorted([c for c in _city_agg_c['adset_norm'].unique() if 'allcity' in str(c).lower()])
+                _cities_sorted_c.extend(allcity_variants_c)
                 _b2rows_c = []
                 for _city in _cities_sorted_c:
                     for _, _r in _city_agg_c[_city_agg_c['adset_norm'] == _city].iterrows():
@@ -1166,13 +1169,15 @@ def clean_creative_name(name):
     name = re.sub(r'[_-]?\d+\s*[xх]\s*\d+.*$', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[xх]\d+.*$', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[_-]\d+.*$', '', name)
-    name = re.sub(r'\d+\s*[кk]', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\d+\s*[кkKК](?![а-яА-Яa-zA-Z])', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[\d.,]*\s*млн\.?', '', name, flags=re.IGNORECASE)
     name = re.sub(r'\bмлн\b', '', name, flags=re.IGNORECASE)
     name = re.sub(r'(заработок)\s*[\d.,]+(?:\s*[кkмm][а-я]*)?', r'\1', name, flags=re.IGNORECASE)
-    # Стираем цифры после cost/sal/fee только если после них НЕ идут кириллические буквы вплотную
     name = re.sub(r'(cost|sal|fee)\s*\d+\s*', lambda m: m.group(1) + ' ', name, flags=re.IGNORECASE)
     name = name.strip()
+    # Восстанавливаем буквы для общей базы
+    name = re.sub(r'costарта', 'cost карта', name, flags=re.IGNORECASE)
+    name = re.sub(r'costй', 'cost й', name, flags=re.IGNORECASE)
     name = re.sub(r'(exec)(O|0)(?=\b|_|\s)', r'\1O', name, flags=re.IGNORECASE)
     name = re.sub(r'(?:до\s*)?\d[\d\s.,]*\s*(?:₽|руб\.?|р\.?)?\s*(?=в\s*(?:месяц|неделю|день|год|час|смену)\b)', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[_ ,]+(Emalahleni|Mbombela|Middelburg|Kimberley|Potchefstroom|Bloemfontein|Klerksdorp|Cape\s*Town|Polokwane|Welkom)', '', name, flags=re.IGNORECASE)
@@ -1465,14 +1470,14 @@ else:
 
                             def normalize_adset(name):
                                 if not name: return ''
-                                name = str(name).lower().strip()
-                                if 'allcity' in name: return 'allcity'
-                                name = re.sub(r'\d{1,2}[./-]\d{1,2}', '', name)
-                                name = re.sub(r'\d+', '', name)
-                                name = re.sub(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b', '', name)
-                                name = re.sub(r'\b(copy|trg|target)\b', '', name)
-                                name = re.sub(r'\+?\s*truck', '', name)
+                                name = str(name).strip()
+                                name = re.sub(r'\b\d{1,2}[./-]\d{1,2}\b', '', name)
+                                name = re.sub(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|январь|февраль|март|апрель|май|июнь|июль|август|сентябрь|октябрь|ноябрь|декабрь)\b', '', name, flags=re.IGNORECASE)
+                                name = re.sub(r'\b(copy|trg|target)\b', '', name, flags=re.IGNORECASE)
+                                name = re.sub(r'\+?\s*truck', '', name, flags=re.IGNORECASE)
                                 name = re.sub(r'[-–—_.]', ' ', name)
+                                if 'allcity' not in name.lower():
+                                    name = re.sub(r'\d+', '', name)
                                 return re.sub(r'\s{2,}', ' ', name).strip()
 
                             df_raw = df_raw.rename(columns={
@@ -1750,14 +1755,14 @@ else:
                 })
 
                 def format_cities(cities_set):
-                    has_allcity = 'allcity' in cities_set
-                    regular = len([c for c in cities_set if c != 'allcity' and c != ''])
-                    if regular > 0 and has_allcity:
-                        return f"{regular}+allcity"
+                    allcity_items = sorted([c for c in cities_set if 'allcity' in str(c).lower()])
+                    regular = len([c for c in cities_set if 'allcity' not in str(c).lower() and c != ''])
+                    if regular > 0 and allcity_items:
+                        return f"{regular}+" + "+".join(allcity_items)
                     elif regular > 0:
                         return str(regular)
-                    elif has_allcity:
-                        return "allcity"
+                    elif allcity_items:
+                        return "+".join(allcity_items)
                     return ""
 
                 table_data['Города'] = table_data['cities_set'].apply(format_cities)
@@ -1775,14 +1780,14 @@ else:
                 all_cities = set()
                 for s in table_data['cities_set']:
                     all_cities.update(s)
-                has_allcity_total = 'allcity' in all_cities
-                regular_total = len([c for c in all_cities if c != 'allcity' and c != ''])
-                if regular_total > 0 and has_allcity_total:
-                    total_cities_str = f"{regular_total}+allcity"
+                allcity_items_total = sorted([c for c in all_cities if 'allcity' in str(c).lower()])
+                regular_total = len([c for c in all_cities if 'allcity' not in str(c).lower() and c != ''])
+                if regular_total > 0 and allcity_items_total:
+                    total_cities_str = f"{regular_total}+" + "+".join(allcity_items_total)
                 elif regular_total > 0:
                     total_cities_str = str(regular_total)
-                elif has_allcity_total:
-                    total_cities_str = "allcity"
+                elif allcity_items_total:
+                    total_cities_str = "+".join(allcity_items_total)
                 else:
                     total_cities_str = ""
 
@@ -1940,9 +1945,9 @@ else:
                     'spend_vat': 'sum', 'spend_vat_rub': 'sum',
                 }).reset_index()
                 _city_agg['CTR %'] = (_city_agg['Клики'] / _city_agg['Показы'] * 100).fillna(0)
-                _cities_sorted = sorted([c for c in _city_agg['adset_norm'].unique() if c != 'allcity'])
-                if 'allcity' in _city_agg['adset_norm'].values:
-                    _cities_sorted.append('allcity')
+                _cities_sorted = sorted([c for c in _city_agg['adset_norm'].unique() if 'allcity' not in str(c).lower()])
+                allcity_variants = sorted([c for c in _city_agg['adset_norm'].unique() if 'allcity' in str(c).lower()])
+                _cities_sorted.extend(allcity_variants)
                 _b2rows = []
                 for _city in _cities_sorted:
                     for _, _r in _city_agg[_city_agg['adset_norm'] == _city].iterrows():
