@@ -188,13 +188,11 @@ def find_image_on_drive(creative_name, country_code=None):
                     fname = re.sub(r'\.(png|jpg|jpeg|webp|mp4|mov|avi|webm|mkv|m4v).*$', '', fname, flags=re.IGNORECASE)
                     fname = re.sub(r'_\d{3,}', '', fname)
                     fname = re.sub(r'\([^)]*\)', '', fname)
-                    # 🔥 Защита процентов
                     fname = re.sub(r'\b\d{2,}\b(?!%)', '', fname)
-                    # 🔥 Умная очистка cost
                     fname = re.sub(r'(cost|sal|fee)[_\s]*[\d.,]+([_\s]*)', lambda m: m.group(1) + (m.group(2) if m.group(2) else ' '), fname, flags=re.IGNORECASE)
                     fname = re.sub(r'\s{2,}', ' ', fname).strip()
                     if fname == norm:
-                        return f"https://drive.google.com/uc?id={f['id']}"
+                        return f"https://drive.google.com/thumbnail?id={f['id']}&sz=w800"
             return None
 
         if country_code:
@@ -961,22 +959,21 @@ try {{
                     for item in gallery_items_c:
                         is_leader = item['name'] in top3_gallery_c
                         border_style = 'border:3px solid #e53935;border-radius:12px;' if is_leader else ''
-                        if item['img_url']:
-                            if item['is_video'] and item.get('video_src'):
-                                if 'drive.google.com' in item['video_src']:
-                                    drive_file_id = item['video_src'].split('/d/')[1].split('/')[0]
-                                    drive_open_url = f"https://drive.google.com/file/d/{drive_file_id}/view"
-                                    media_html = f"""<div style="position:relative;width:100%;border-radius:10px;overflow:hidden;"><img src="{item['img_url']}" style="width:100%;height:auto;display:block;border-radius:10px;"><a href="{drive_open_url}" target="_blank" style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;text-decoration:none;border-radius:10px;"><div style="width:56px;height:56px;background:rgba(255,255,255,0.92);border-radius:50%;display:flex;align-items:center;justify-content:center;"><div style="width:0;height:0;margin-left:6px;border-top:12px solid transparent;border-bottom:12px solid transparent;border-left:20px solid #222;"></div></div></a></div>"""
-                                else:
-                                    media_html = f"""<div style="width:100%;aspect-ratio:1;border-radius:10px;overflow:hidden;background:#000;"><video src="{item['video_src']}" style="width:100%;height:100%;object-fit:cover;display:block;" controls preload="metadata" playsinline></video></div>"""
-                            else:
-                                overlay = ""
-                                if item['is_video']:
-                                    overlay = """<div style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;border-radius:10px;"><div style="width:48px;height:48px;background:rgba(255,255,255,0.92);border-radius:50%;display:flex;align-items:center;justify-content:center;"><div style="width:0;height:0;margin-left:5px;border-top:10px solid transparent;border-bottom:10px solid transparent;border-left:18px solid #222;"></div></div></div>"""
-                                media_html = f"""<div style="position:relative;width:100%;border-radius:10px;overflow:hidden;"><img src="{item['img_url']}" style="width:100%;height:auto;display:block;border-radius:10px;">{overlay}</div>"""
-                            cards_html_c += f"""<div style="display:flex;flex-direction:column;gap:8px;{border_style}padding:{'4px' if is_leader else '0'}">{media_html}<div style="font-size:13px;color:#ccc;word-break:break-word;">{item['name']}</div></div>"""
+                        
+                        media_html = ""
+                        if item.get('video_src') and 'drive.google.com' in item['video_src']:
+                            drive_file_id = item['video_src'].split('/d/')[1].split('/')[0]
+                            drive_open_url = f"https://drive.google.com/file/d/{drive_file_id}/view"
+                            drive_thumb = f"https://drive.google.com/thumbnail?id={drive_file_id}&sz=w800"
+                            media_html = f"""<div style="position:relative;width:100%;border-radius:10px;overflow:hidden;aspect-ratio:1;background:#000;"><img src="{drive_thumb}" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:10px;"><a href="{drive_open_url}" target="_blank" style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;text-decoration:none;border-radius:10px;"><div style="width:56px;height:56px;background:rgba(255,255,255,0.92);border-radius:50%;display:flex;align-items:center;justify-content:center;"><div style="width:0;height:0;margin-left:6px;border-top:12px solid transparent;border-bottom:12px solid transparent;border-left:20px solid #222;"></div></div></a></div>"""
+                        elif item.get('video_src') and item['is_video']:
+                            media_html = f"""<div style="width:100%;aspect-ratio:1;border-radius:10px;overflow:hidden;background:#000;"><video src="{item['video_src']}" style="width:100%;height:100%;object-fit:cover;display:block;" controls preload="metadata" playsinline></video></div>"""
+                        elif item.get('img_url'):
+                            media_html = f"""<div style="position:relative;width:100%;border-radius:10px;overflow:hidden;aspect-ratio:1;background:#000;"><img src="{item['img_url']}" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:10px;"></div>"""
                         else:
-                            cards_html_c += f"""<div style="display:flex;flex-direction:column;gap:8px;{border_style}padding:{'4px' if is_leader else '0'}"><div style="width:100%;aspect-ratio:1;background:#2a2a2a;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#666;">Нет фото</div><div style="font-size:13px;color:#ccc;word-break:break-word;">{item['name']}</div></div>"""
+                            media_html = f"""<div style="width:100%;aspect-ratio:1;background:#2a2a2a;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#666;">Нет фото</div>"""
+
+                        cards_html_c += f"""<div style="display:flex;flex-direction:column;gap:8px;{border_style}padding:{'4px' if is_leader else '0'}">{media_html}<div style="font-size:13px;color:#ccc;word-break:break-word;">{item['name']}</div></div>"""
                     full_html_c = f"""<html><head><style>body{{margin:0;padding:0;background:transparent}}</style></head><body><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:12px;font-family:sans-serif;">{cards_html_c}</div></body></html>"""
                     components.html(full_html_c, height=(len(gallery_items_c) // 5 + 1) * 260 + 50, scrolling=True)
 
@@ -2309,22 +2306,21 @@ else:
                     for item in gallery_items:
                         is_leader = item['name'] in top3_gallery
                         border_style = 'border:3px solid #e53935;border-radius:12px;' if is_leader else ''
-                        if item['img_url']:
-                            if item['is_video'] and item.get('video_src'):
-                                if 'drive.google.com' in item['video_src']:
-                                    drive_file_id = item['video_src'].split('/d/')[1].split('/')[0]
-                                    drive_open_url = f"https://drive.google.com/file/d/{drive_file_id}/view"
-                                    media_html = f"""<div style="position:relative;width:100%;border-radius:10px;overflow:hidden;"><img src="{item['img_url']}" style="width:100%;height:auto;display:block;border-radius:10px;"><a href="{drive_open_url}" target="_blank" style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;text-decoration:none;border-radius:10px;"><div style="width:56px;height:56px;background:rgba(255,255,255,0.92);border-radius:50%;display:flex;align-items:center;justify-content:center;"><div style="width:0;height:0;margin-left:6px;border-top:12px solid transparent;border-bottom:12px solid transparent;border-left:20px solid #222;"></div></div></a></div>"""
-                                else:
-                                    media_html = f"""<video src="{item['video_src']}" style="width:100%;height:auto;display:block;border-radius:10px;" controls preload="metadata" playsinline></video>"""
-                            else:
-                                overlay = ""
-                                if item['is_video']:
-                                    overlay = """<div style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;border-radius:10px;"><div style="width:48px;height:48px;background:rgba(255,255,255,0.92);border-radius:50%;display:flex;align-items:center;justify-content:center;"><div style="width:0;height:0;margin-left:5px;border-top:10px solid transparent;border-bottom:10px solid transparent;border-left:18px solid #222;"></div></div></div>"""
-                                media_html = f"""<div style="position:relative;width:100%;border-radius:10px;overflow:hidden;"><img src="{item['img_url']}" style="width:100%;height:auto;display:block;border-radius:10px;">{overlay}</div>"""
-                            cards_html += f"""<div style="display:flex;flex-direction:column;gap:8px;{border_style}padding:{'4px' if is_leader else '0'}">{media_html}<div style="font-size:13px;color:#ccc;word-break:break-word;">{item['name']}</div></div>"""
+                        
+                        media_html = ""
+                        if item.get('video_src') and 'drive.google.com' in item['video_src']:
+                            drive_file_id = item['video_src'].split('/d/')[1].split('/')[0]
+                            drive_open_url = f"https://drive.google.com/file/d/{drive_file_id}/view"
+                            drive_thumb = f"https://drive.google.com/thumbnail?id={drive_file_id}&sz=w800"
+                            media_html = f"""<div style="position:relative;width:100%;border-radius:10px;overflow:hidden;aspect-ratio:1;background:#000;"><img src="{drive_thumb}" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:10px;"><a href="{drive_open_url}" target="_blank" style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;text-decoration:none;border-radius:10px;"><div style="width:56px;height:56px;background:rgba(255,255,255,0.92);border-radius:50%;display:flex;align-items:center;justify-content:center;"><div style="width:0;height:0;margin-left:6px;border-top:12px solid transparent;border-bottom:12px solid transparent;border-left:20px solid #222;"></div></div></a></div>"""
+                        elif item.get('video_src') and item['is_video']:
+                            media_html = f"""<div style="width:100%;aspect-ratio:1;border-radius:10px;overflow:hidden;background:#000;"><video src="{item['video_src']}" style="width:100%;height:100%;object-fit:cover;display:block;" controls preload="metadata" playsinline></video></div>"""
+                        elif item.get('img_url'):
+                            media_html = f"""<div style="position:relative;width:100%;border-radius:10px;overflow:hidden;aspect-ratio:1;background:#000;"><img src="{item['img_url']}" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:10px;"></div>"""
                         else:
-                            cards_html += f"""<div style="display:flex;flex-direction:column;gap:8px;{border_style}padding:{'4px' if is_leader else '0'}"><div style="width:100%;aspect-ratio:1;background:#2a2a2a;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#666;">Нет фото</div><div style="font-size:13px;color:#ccc;">{item['name']}</div></div>"""
+                            media_html = f"""<div style="width:100%;aspect-ratio:1;background:#2a2a2a;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#666;">Нет фото</div>"""
+
+                        cards_html += f"""<div style="display:flex;flex-direction:column;gap:8px;{border_style}padding:{'4px' if is_leader else '0'}">{media_html}<div style="font-size:13px;color:#ccc;word-break:break-word;">{item['name']}</div></div>"""
                     full_html = f"""<html><head><style>::-webkit-scrollbar{{width:6px}}::-webkit-scrollbar-track{{background:#1e1e1e;border-radius:3px}}::-webkit-scrollbar-thumb{{background:#444;border-radius:3px}}body{{margin:0;padding:0;background:transparent}}</style></head><body><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:12px;font-family:sans-serif;">{cards_html}</div></body></html>"""
                     rows_count = (len(gallery_items) + 4) // 5
                     components.html(full_html, height=rows_count * 420 + 50, scrolling=True)
