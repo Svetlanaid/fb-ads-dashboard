@@ -42,11 +42,13 @@ def find_video_on_drive(creative_name, country_code=None):
 
         def clean_for_drive(name):
             name = str(name or "").lower().strip()
-            name = re.sub(r'\.(png|jpg|jpeg).*$', '', name, flags=re.IGNORECASE)
+            name = re.sub(r'\.(png|jpg|jpeg|mp4|mov|avi|webm|mkv|m4v).*$', '', name, flags=re.IGNORECASE)
             name = re.sub(r'_\d{3,}', '', name)
             name = re.sub(r'\([^)]*\)', '', name)
-            name = re.sub(r'\b\d{2,}\b', '', name)
-            name = re.sub(r'(cost)[\s_\-]*[\d.,]+', r'\1', name, flags=re.IGNORECASE)
+            # 🔥 Защита процентов
+            name = re.sub(r'\b\d{2,}\b(?!%)', '', name)
+            # 🔥 Умная очистка cost
+            name = re.sub(r'(cost|sal|fee)[_\s]*[\d.,]+([_\s]*)', lambda m: m.group(1) + (m.group(2) if m.group(2) else ' '), name, flags=re.IGNORECASE)
             name = re.sub(r'\s{2,}', ' ', name).strip()
             return name
 
@@ -111,13 +113,15 @@ def search_video_in_folder(service, folder_id, norm_creative, normalize_name):
                 if result:
                     return result
             elif f['mimeType'].startswith('video/'):
-                file_name = re.sub(r'\.(mp4|mov|avi|webm|mkv|m4v).*$', '', f['name'], flags=re.IGNORECASE)
-                file_clean = re.sub(r'\.(png|jpg|jpeg).*$', '', file_name, flags=re.IGNORECASE)
+                file_clean = str(f['name'] or "").lower().strip()
+                file_clean = re.sub(r'\.(png|jpg|jpeg|mp4|mov|avi|webm|mkv|m4v).*$', '', file_clean, flags=re.IGNORECASE)
                 file_clean = re.sub(r'_\d{3,}', '', file_clean)
                 file_clean = re.sub(r'\([^)]*\)', '', file_clean)
-                file_clean = re.sub(r'\b\d{2,}\b', '', file_clean)
-                file_clean = re.sub(r'(cost)[\s_\-]*[\d.,]+', r'\1', file_clean, flags=re.IGNORECASE)
-                file_clean = re.sub(r'\s{2,}', ' ', file_clean).strip().lower()
+                # 🔥 Защита процентов
+                file_clean = re.sub(r'\b\d{2,}\b(?!%)', '', file_clean)
+                # 🔥 Умная очистка cost
+                file_clean = re.sub(r'(cost|sal|fee)[_\s]*[\d.,]+([_\s]*)', lambda m: m.group(1) + (m.group(2) if m.group(2) else ' '), file_clean, flags=re.IGNORECASE)
+                file_clean = re.sub(r'\s{2,}', ' ', file_clean).strip()
                 if file_clean == norm_creative:
                     return f"https://drive.google.com/file/d/{f['id']}/preview"
         return None
@@ -134,11 +138,13 @@ def find_image_on_drive(creative_name, country_code=None):
 
         def clean_for_drive_img(name):
             name = str(name or "").lower().strip()
-            name = re.sub(r'\.(png|jpg|jpeg|mp4|mov).*$', '', name, flags=re.IGNORECASE)
+            name = re.sub(r'\.(png|jpg|jpeg|mp4|mov|avi|webm|mkv|m4v).*$', '', name, flags=re.IGNORECASE)
             name = re.sub(r'_\d{3,}', '', name)
             name = re.sub(r'\([^)]*\)', '', name)
-            name = re.sub(r'\b\d{2,}\b', '', name)
-            name = re.sub(r'(cost)[\s_\-]*[\d.,]+', r'\1', name, flags=re.IGNORECASE)
+            # 🔥 Защита процентов
+            name = re.sub(r'\b\d{2,}\b(?!%)', '', name)
+            # 🔥 Умная очистка cost
+            name = re.sub(r'(cost|sal|fee)[_\s]*[\d.,]+([_\s]*)', lambda m: m.group(1) + (m.group(2) if m.group(2) else ' '), name, flags=re.IGNORECASE)
             name = re.sub(r'\s{2,}', ' ', name).strip()
             return name
 
@@ -178,12 +184,15 @@ def find_image_on_drive(creative_name, country_code=None):
                     if result:
                         return result
                 elif f['mimeType'].startswith('image/'):
-                    fname = re.sub(r'\.(png|jpg|jpeg|webp)$', '', f['name'], flags=re.IGNORECASE)
+                    fname = str(f['name'] or "").lower().strip()
+                    fname = re.sub(r'\.(png|jpg|jpeg|webp|mp4|mov|avi|webm|mkv|m4v).*$', '', fname, flags=re.IGNORECASE)
                     fname = re.sub(r'_\d{3,}', '', fname)
                     fname = re.sub(r'\([^)]*\)', '', fname)
-                    fname = re.sub(r'\b\d{2,}\b', '', fname)
-                    fname = re.sub(r'(cost)[\s_\-]*[\d.,]+', r'\1', fname, flags=re.IGNORECASE)
-                    fname = re.sub(r'\s{2,}', ' ', fname).strip().lower()
+                    # 🔥 Защита процентов
+                    fname = re.sub(r'\b\d{2,}\b(?!%)', '', fname)
+                    # 🔥 Умная очистка cost
+                    fname = re.sub(r'(cost|sal|fee)[_\s]*[\d.,]+([_\s]*)', lambda m: m.group(1) + (m.group(2) if m.group(2) else ' '), fname, flags=re.IGNORECASE)
+                    fname = re.sub(r'\s{2,}', ' ', fname).strip()
                     if fname == norm:
                         return f"https://drive.google.com/uc?id={f['id']}"
             return None
