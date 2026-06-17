@@ -387,7 +387,8 @@ if main_tab == "Клиенты":
             
             name = re.sub(r'(cost)\s+(_)', lambda m: m.group(1) + m.group(2), name, flags=re.IGNORECASE)
             name = name.strip()
-            name = re.sub(r'\b\d{2,}\b', '', name)
+            # 🔥 Не удаляем цифру, если она склеена с процентом
+            name = re.sub(r'\b\d{2,}\b(?!%)', '', name)
             name = re.sub(r'\s{2,}', ' ', name).strip()
             return name
 
@@ -1164,10 +1165,9 @@ def clean_creative_name(name):
     name = re.sub(r'\.(png|jpg|jpeg).*$', '', name, flags=re.IGNORECASE)
     name = re.sub(r'_\d{3,}', '', name)
     name = re.sub(r'\([^)]*\)', '', name)
-    name = re.sub(r'\b\d{2,}\b(?!\s*(?:заказ|поездк|водител|клиент|пассажир|машин|авто))', '', name)
+    # 🔥 Защищаем цифры, если они склеены с % ИЛИ если после них идут целевые слова
+    name = re.sub(r'\b\d{2,}\b(?!\s*(?:заказ|поездк|водител|клиент|пассажир|машин|авто)|%)', '', name)
     name = re.sub(r'\.(png|jpg|jpeg).*$', '', name, flags=re.IGNORECASE)
-    name = re.sub(r'[_-]?\d+\s*[xх]\s*\d+.*$', '', name, flags=re.IGNORECASE)
-    name = re.sub(r'[xх]\d+.*$', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[_-]\d+.*$', '', name)
     
     # Защита буквы "к"
