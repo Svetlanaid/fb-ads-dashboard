@@ -835,12 +835,9 @@ try {{
                             try:
                                 # 🔥 СТРОГИЙ ФИЛЬТР: Ищем макеты ТОЛЬКО внутри текущих кампаний (отсекаем "чужие" города с таким же названием макета)
                                 import json
-                                import urllib.parse
                                 raw_camps_list_c = list(raw_camps_c)
                                 filtering_param_c = json.dumps([{"field": "campaign.name", "operator": "IN", "value": raw_camps_list_c}])
-                                # Кодируем JSON для правильной передачи в URL-строке
-                                filtering_encoded = urllib.parse.quote(filtering_param_c)
-                                next_url = f"https://graph.facebook.com/v19.0/act_{acc_id_c}/ads?fields=name,id,adcreatives{{name}}&limit=500&filtering={filtering_encoded}&access_token={TOKEN}"
+                                next_url = f"https://graph.facebook.com/v19.0/act_{acc_id_c}/ads?fields=name,id,adcreatives{{name}}&limit=500&filtering={filtering_param_c}&access_token={TOKEN}"
                                 total_ads_checked = 0
                                 while next_url:
                                     search_res = requests.get(next_url, timeout=60).json()
