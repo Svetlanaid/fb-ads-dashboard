@@ -833,7 +833,11 @@ try {{
                     with st.spinner(f"Ищем макеты кампании {camp_name_c}..."):
                         for acc_id_c in all_acc_ids_c:
                             try:
-                                next_url = f"https://graph.facebook.com/v19.0/act_{acc_id_c}/ads?fields=name,id,adcreatives{{name}}&limit=500&access_token={TOKEN}"
+                                # 🔥 СТРОГИЙ ФИЛЬТР: Ищем макеты ТОЛЬКО внутри текущих кампаний (отсекаем "чужие" города с таким же названием макета)
+                                import json
+                                raw_camps_list_c = list(raw_camps_c)
+                                filtering_param_c = json.dumps([{"field": "campaign.name", "operator": "IN", "value": raw_camps_list_c}])
+                                next_url = f"https://graph.facebook.com/v19.0/act_{acc_id_c}/ads?fields=name,id,adcreatives{{name}}&limit=500&filtering={filtering_param_c}&access_token={TOKEN}"
                                 total_ads_checked = 0
                                 while next_url:
                                     search_res = requests.get(next_url, timeout=60).json()
