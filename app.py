@@ -798,7 +798,7 @@ try {{
                         "BR": ["24948463558072461"], "VN": ["192474577136849"],
                         "GE": ["582893932494739"], "DO": ["817547549239841"],
                         "ID": ["1591493017715668", "257290219582370"],
-                        "CO": ["351583944532627"], "MY": ["398026798982273"],
+                        "CO": ["351583944532627", "1017983840241975"], "MY": ["398026798982273"],
                         "PE": ["1323600845784691"], "TJ": ["209570214255009"],
                         "TH": ["2727239577416075"],
                         "TZ": ["2295720397582070", "351994210156217"],
@@ -1188,7 +1188,12 @@ def clean_creative_name(name):
     name = name.strip()
     name = re.sub(r'(exec)(O|0)(?=\b|_|\s)', r'\1O', name, flags=re.IGNORECASE)
     name = re.sub(r'(?:до\s*)?\d[\d\s.,]*\s*(?:₽|руб\.?|р\.?)?\s*(?=в\s*(?:месяц|неделю|день|год|час|смену)\b)', '', name, flags=re.IGNORECASE)
-    name = re.sub(r'[_ ,]+(Emalahleni|Mbombela|Middelburg|Kimberley|Potchefstroom|Bloemfontein|Klerksdorp|Cape\s*Town|Polokwane|Welkom)', '', name, flags=re.IGNORECASE)
+    
+    # Улучшенная очистка городов ЮАР (добавлены новые города и авто-зачистка)
+    za_cities = r'[_ ,]+(Emalahleni|Mbombela|Middelburg|Kimberley|Potchefstroom|Bloemfontein|Klerksdorp|Cape\s*Town|Polokwane|Welkom|Pretoria|Durban|Johannesburg|Rustenburg|Upington|George|Pietermaritzburg|Nelspruit)'
+    name = re.sub(za_cities, '', name, flags=re.IGNORECASE)
+    name = re.sub(r'город_[A-Za-zА-Яа-яЁё\-]+', '', name, flags=re.IGNORECASE)
+    
     name = re.sub(r'[-_]{2,}', '_', name)
     name = re.sub(r'\s{2,}', ' ', name).strip()
     name = re.sub(r'[_-]+$', '', name)
@@ -1239,6 +1244,9 @@ else:
 
         # Колумбия (БМ: Maxim_Indonesia)
         "351583944532627": 1.0,
+
+        # Колумбия (БМ: Maxim_Indonesia)
+        "1017983840241975": 1.0,
 
         # Малайзия (БМ: AIST_Malaysia)
         "398026798982273": 1.08,
