@@ -1190,7 +1190,7 @@ def clean_creative_name(name):
     name = re.sub(r'(?:до\s*)?\d[\d\s.,]*\s*(?:₽|руб\.?|р\.?)?\s*(?=в\s*(?:месяц|неделю|день|год|час|смену)\b)', '', name, flags=re.IGNORECASE)
     
     # Улучшенная очистка городов ЮАР (добавлены новые города и авто-зачистка)
-    za_cities = r'[_ ,]+(Emalahleni|Mbombela|Middelburg|Kimberley|Potchefstroom|Bloemfontein|Klerksdorp|Cape\s*Town|Polokwane|Welkom|Pretoria|Durban|Johannesburg|Rustenburg|Upington|George|Pietermaritzburg|Nelspruit)'
+    za_cities = r'[_ ,]+(Emalahleni|Mbombela|Middelburg|Kimberley|Potchefstroom|Bloemfontein|Klerksdorp|Cape\s*Town|Polokwane|Welkom|Pretoria|Durban|Johannesburg|Rustenburg|Upington|George|Pietermaritzburg|Nelspruit|Newcastle|Vanderbijlpark)'
     name = re.sub(za_cities, '', name, flags=re.IGNORECASE)
     name = re.sub(r'город_[A-Za-zА-Яа-яЁё\-]+', '', name, flags=re.IGNORECASE)
     
@@ -1616,7 +1616,7 @@ else:
                                                     df_dco['Затраты'] = df_dco['spend']
                                                     df_dco['vat_multiplier'] = vat
                                                     df_dco['adset_norm'] = 'allcity'
-                                                    df_dco['Макет'] = df_dco['dco_asset_name']
+                                                    df_dco['Макет'] = df_dco['dco_asset_name'].apply(clean_creative_name)
                                                     df_dco['Название группы'] = df_dco['adset_name'].apply(clean_campaign_name)
                                                     df_dco['campaign_name_clean'] = df_dco['campaign_name'].apply(clean_campaign_name)
                                                     dco_frames.append(df_dco)
