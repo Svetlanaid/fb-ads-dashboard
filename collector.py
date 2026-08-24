@@ -48,13 +48,14 @@ VAT_MAP = {
     "1052629215643734":  1.0,        # Филиппины 2
     "830039013207696":   1.15,       # ЮАР
     "3710708579188840":  1.10,       # LA
+    "1017983840241975":   1.0,        # Колумбия
 }
 
 # Метки стран для каждого аккаунта
 ACCOUNT_LABELS = {
     "24946866675014329": "Maxim Azerbaijan",
     "509917460493340":   "Maxim Argentina",
-    "2110787599718272":  "Belarus",
+    "2110787599718272":  "BroCar Belarus",
     "1013441868511084":  "Maxim Bulgaria",
     "24948463558072461": "Maxim Brasil",
     "192474577136849":   "Maxim Vietnam",
@@ -63,12 +64,13 @@ ACCOUNT_LABELS = {
     "1591493017715668":  "Maxim Indonesia",
     "257290219582370":   "Maxim Indonesia",
     "351583944532627":   "Maxim Colombia",
+    "1017983840241975":   "Maxim Colombia",
     "398026798982273":   "Maxim Malaysia",
     "1323600845784691":  "Maxim Peru",
     "209570214255009":   "Maxim Tajikistan",
     "2727239577416075":  "Maxim Thailand",
-    "2295720397582070":  "Tanzania",
-    "351994210156217":   "Tanzania",
+    "2295720397582070":  "Maxim Tanzania",
+    "351994210156217":   "Maxim Tanzania",
     "1236647761876144":   "Tanzania GMT",
     "2050316328716958":  "Maxim Philippines",
     "1052629215643734":  "Maxim Philippines",
