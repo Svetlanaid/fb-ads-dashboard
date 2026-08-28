@@ -1,6 +1,6 @@
 supabase
 streamlit
-streamlit-cookies-manager
+extra-streamlit-components
 requests
 pandas
 plotly
