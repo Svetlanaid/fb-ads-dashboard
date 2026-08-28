@@ -205,7 +205,13 @@ def find_image_on_drive(creative_name, country_code=None):
         return None
     except:
         return None        
+import streamlit as st
+
+if not hasattr(st, "cache"):
+    st.cache = st.cache_data
+
 from streamlit_cookies_manager import EncryptedCookieManager
+
 
 # --- БЛОК АВТОРИЗАЦИИ ---
 if "users" in st.secrets:
