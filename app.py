@@ -210,7 +210,9 @@ import streamlit as st
 if not hasattr(st, "cache"):
     st.cache = st.cache_data
 
-from streamlit_cookies_manager import EncryptedCookieManager
+import extra_streamlit_components as stx
+cookie_manager = stx.CookieManager()
+
 
 
 # --- БЛОК АВТОРИЗАЦИИ ---
