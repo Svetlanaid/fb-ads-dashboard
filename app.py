@@ -308,42 +308,6 @@ if main_tab == "Клиенты":
     if uploaded_file:
         df_clients = pd.read_excel(uploaded_file)
         
-        # -------- ИЗВЛЕЧЕНИЕ AD ID (ПО ОЧИЩЕННОМУ НАЗВАНИЮ) --------
-        ad_id_dict = {}
-        cols_lower = [str(c).strip().lower() for c in df_clients.columns]
-        
-        ad_col = next((df_clients.columns[i] for i, c in enumerate(cols_lower) if c == 'ad'), None)
-        adid_col = next((df_clients.columns[i] for i, c in enumerate(cols_lower) if c in ['ad id', 'ad_id']), None)
-        adset_col = next((df_clients.columns[i] for i, c in enumerate(cols_lower) if c == 'adset'), None)
-        
-        if ad_col:
-            for _, row in df_clients.iterrows():
-                raw_ad = str(row[ad_col])
-                if raw_ad.lower() == 'nan' or not raw_ad:
-                    continue
-                    
-                raw_id = None
-                if adid_col and adid_col in df_clients.columns:
-                    try:
-                        raw_id = str(int(float(row[adid_col])))
-                    except:
-                        val = str(row[adid_col]).replace('.0', '').strip()
-                        if val.lower() != 'nan' and val:
-                            raw_id = val
-                            
-                raw_adset = str(row[adset_col]) if adset_col and adset_col in df_clients.columns else ""
-                
-                c_ad = clean_cost(clean_creative_name_local(raw_ad))
-                c_adset = norm_adset_clients(raw_adset)
-                
-                safe_ad = str(c_ad).lower().strip()
-                safe_adset = str(c_adset).lower().strip()
-                
-                if raw_id:
-                    ad_id_dict[(safe_adset, safe_ad)] = raw_id
-                    if safe_ad not in ad_id_dict:
-                        ad_id_dict[safe_ad] = raw_id
-        # -----------------------------------------------------------------
         
         # Нормализация названий кампаний
         
@@ -434,6 +398,43 @@ if main_tab == "Клиенты":
             name = re.sub(r'\s{2,}', ' ', name).strip()
             return name
 
+        # -------- ИЗВЛЕЧЕНИЕ AD ID (ПО ОЧИЩЕННОМУ НАЗВАНИЮ) --------
+        ad_id_dict = {}
+        cols_lower = [str(c).strip().lower() for c in df_clients.columns]
+        
+        ad_col = next((df_clients.columns[i] for i, c in enumerate(cols_lower) if c == 'ad'), None)
+        adid_col = next((df_clients.columns[i] for i, c in enumerate(cols_lower) if c in ['ad id', 'ad_id']), None)
+        adset_col = next((df_clients.columns[i] for i, c in enumerate(cols_lower) if c == 'adset'), None)
+        
+        if ad_col:
+            for _, row in df_clients.iterrows():
+                raw_ad = str(row[ad_col])
+                if raw_ad.lower() == 'nan' or not raw_ad:
+                    continue
+                    
+                raw_id = None
+                if adid_col and adid_col in df_clients.columns:
+                    try:
+                        raw_id = str(int(float(row[adid_col])))
+                    except:
+                        val = str(row[adid_col]).replace('.0', '').strip()
+                        if val.lower() != 'nan' and val:
+                            raw_id = val
+                            
+                raw_adset = str(row[adset_col]) if adset_col and adset_col in df_clients.columns else ""
+                
+                c_ad = clean_cost(clean_creative_name_local(raw_ad))
+                c_adset = norm_adset_clients(raw_adset)
+                
+                safe_ad = str(c_ad).lower().strip()
+                safe_adset = str(c_adset).lower().strip()
+                
+                if raw_id:
+                    ad_id_dict[(safe_adset, safe_ad)] = raw_id
+                    if safe_ad not in ad_id_dict:
+                        ad_id_dict[safe_ad] = raw_id
+        # -----------------------------------------------------------------
+
         df_clients['Макет_raw'] = df_clients['ad_name'].apply(lambda x: clean_creative_name_local(str(x or "")))
         df_clients['Макет'] = df_clients['Макет_raw'].apply(clean_cost)
         df_clients = df_clients[
@@ -442,6 +443,8 @@ if main_tab == "Клиенты":
             (df_clients['Макет'].str.lower().str.strip() != 'nan') &
             (df_clients['Макет_raw'].str.lower().str.strip() != 'nan')
         ]
+
+        
 
         # Фильтры в сайдбаре
         with st.sidebar:
