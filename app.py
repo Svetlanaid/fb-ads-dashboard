@@ -398,7 +398,7 @@ if main_tab == "Клиенты":
             name = re.sub(r'\s{2,}', ' ', name).strip()
             return name
 
-        # -------- ИЗВЛЕЧЕНИЕ AD ID (ПО ОЧИЩЕННОМУ НАЗВАНИЮ) --------
+        # -------- ИЗВЛЕЧЕНИЕ AD ID (БЕЗ ИСКАЖЕНИЯ ИМЕН) --------
         ad_id_dict = {}
         cols_lower = [str(c).strip().lower() for c in df_clients.columns]
         
@@ -408,7 +408,7 @@ if main_tab == "Клиенты":
         
         if ad_col:
             for _, row in df_clients.iterrows():
-                raw_ad = str(row[ad_col])
+                raw_ad = str(row[ad_col]).strip()
                 if raw_ad.lower() == 'nan' or not raw_ad:
                     continue
                     
@@ -421,18 +421,15 @@ if main_tab == "Клиенты":
                         if val.lower() != 'nan' and val:
                             raw_id = val
                             
-                raw_adset = str(row[adset_col]) if adset_col and adset_col in df_clients.columns else ""
+                raw_adset = str(row[adset_col]).strip() if adset_col and adset_col in df_clients.columns else ""
                 
-                c_ad = clean_cost(clean_creative_name_local(raw_ad))
+                # Применяем к адсету ту же нормализацию, что и таблица
                 c_adset = norm_adset_clients(raw_adset)
                 
-                safe_ad = str(c_ad).lower().strip()
-                safe_adset = str(c_adset).lower().strip()
-                
                 if raw_id:
-                    ad_id_dict[(safe_adset, safe_ad)] = raw_id
-                    if safe_ad not in ad_id_dict:
-                        ad_id_dict[safe_ad] = raw_id
+                    # Сохраняем и со связкой города, и просто по чистому имени из ячейки Excel
+                    ad_id_dict[(c_adset, raw_ad.lower())] = raw_id
+                    ad_id_dict[raw_ad.lower()] = raw_id
         # -----------------------------------------------------------------
 
         df_clients['Макет_raw'] = df_clients['ad_name'].apply(lambda x: clean_creative_name_local(str(x or "")))
@@ -862,18 +859,18 @@ try {{
 
                     display_to_ad_id_c = {}
                     
-                    # Ищем ID по нашим доп. столбцам Экселя
                     for display_name in unique_display_names_c:
                         ad_id_found = None
                         safe_display = str(display_name).lower().strip()
                         
+                        # Пробуем найти через город + имя
                         valid_adsets = df_cc[df_cc['Макет'] == display_name]['adset_norm'].unique()
                         for adset in valid_adsets:
-                            safe_adset = str(adset).lower().strip()
-                            if (safe_adset, safe_display) in ad_id_dict:
-                                ad_id_found = ad_id_dict[(safe_adset, safe_display)]
+                            if (adset, safe_display) in ad_id_dict:
+                                ad_id_found = ad_id_dict[(adset, safe_display)]
                                 break
                                 
+                        # Если не нашлось по городу, ищем просто по точному имени из таблицы
                         if not ad_id_found and safe_display in ad_id_dict:
                             ad_id_found = ad_id_dict[safe_display]
                             
