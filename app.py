@@ -310,9 +310,11 @@ if main_tab == "Клиенты":
         
         # -------- ИЗВЛЕЧЕНИЕ AD ID (ПО ОЧИЩЕННОМУ НАЗВАНИЮ) --------
         ad_id_dict = {}
-        ad_col = next((c for c in df_clients.columns if str(c).strip().lower() == 'ad'), None)
-        adid_col = next((c for c in df_clients.columns if str(c).strip().lower() in ['ad id', 'ad_id']), None)
-        adset_col = next((c for c in df_clients.columns if str(c).strip().lower() == 'adset']), None)
+        cols_lower = [str(c).strip().lower() for c in df_clients.columns]
+        
+        ad_col = next((df_clients.columns[i] for i, c in enumerate(cols_lower) if c == 'ad'), None)
+        adid_col = next((df_clients.columns[i] for i, c in enumerate(cols_lower) if c in ['ad id', 'ad_id']), None)
+        adset_col = next((df_clients.columns[i] for i, c in enumerate(cols_lower) if c == 'adset'), None)
         
         if ad_col:
             for _, row in df_clients.iterrows():
@@ -331,7 +333,6 @@ if main_tab == "Клиенты":
                             
                 raw_adset = str(row[adset_col]) if adset_col and adset_col in df_clients.columns else ""
                 
-                # Применяем ТЕ ЖЕ САМЫЕ функции очистки, что и для таблицы дашборда!
                 c_ad = clean_cost(clean_creative_name_local(raw_ad))
                 c_adset = norm_adset_clients(raw_adset)
                 
