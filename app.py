@@ -892,118 +892,108 @@ try {{
                         # Берем ID из нашего нового словаря
                         ad_id = display_to_ad_id_c.get(display_name)
                         
-                        if not ad_id:
-                            st.warning(f"🚨 ПРОПУЩЕНО: '{display_name}'. ID не найден в доп. столбцах Excel (проверь столбцы Ad, Ad ID, Adset).")
-                            gallery_items_c.append({'name': display_name, 'img_url': None, 'is_video': False, 'video_src': None})
-                            continue
-                        try:
-                            req_url = f"https://graph.facebook.com/v19.0/{ad_id}?fields=account_id,adcreatives{{image_hash,image_url,thumbnail_url,object_story_spec,asset_feed_spec}}&access_token={TOKEN}"
-                            ad_res = requests.get(req_url, timeout=30).json()
-                            
-                            if 'error' in ad_res:
-                                st.error(f"FB Ошибка [{display_name}]: {ad_res['error'].get('message')}")
-                                gallery_items_c.append({'name': display_name, 'img_url': None, 'is_video': False, 'video_src': None})
-                                continue
-                            
-                            acc_id = ad_res.get('account_id')
-                            creative_data = ad_res.get('adcreatives', {}).get('data', [{}])[0]
-                            
-                            img_url = None
-                            video_id = None
-                            video_src = None
-                            
-                            oss = creative_data.get('object_story_spec', {})
-                            is_video_creative = (
-                                bool(oss.get('video_data', {}).get('video_id')) or
-                                bool(creative_data.get('asset_feed_spec', {}).get('videos'))
-                            )
-                            
-                            hashes = []
-                            if creative_data.get('image_hash'):
-                                hashes.append(creative_data.get('image_hash'))
-                            if 'asset_feed_spec' in creative_data:
-                                for img_obj in creative_data['asset_feed_spec'].get('images', []):
-                                    if img_obj.get('hash'):
-                                        hashes.append(img_obj['hash'])
-                                        
-                            if hashes and acc_id:
-                                hash_res = requests.get(
-                                    f"https://graph.facebook.com/v19.0/act_{acc_id}/adimages",
-                                    params={"hashes": json.dumps(list(set(hashes))), "fields": "url,original_width,original_height", "access_token": TOKEN},
-                                    timeout=20
-                                ).json()
-                                if hash_res.get('data'):
-                                    best = None
-                                    for img_info in hash_res['data']:
-                                        w = int(img_info.get('original_width', 0))
-                                        h = int(img_info.get('original_height', 0))
-                                        if w > 0 and h > 0 and 0.9 <= (w/h) <= 1.1:
-                                            best = img_info.get('url')
-                                            break
-                                    img_url = best or hash_res['data'][0].get('url')
+                        img_url = None
+                        video_src = None
+                        is_video_creative = False
+                        
+                        # 1. Если ID есть — ищем в Facebook
+                        if ad_id:
+                            try:
+                                req_url = f"https://graph.facebook.com/v19.0/{ad_id}?fields=account_id,adcreatives{{image_hash,image_url,thumbnail_url,object_story_spec,asset_feed_spec}}&access_token={TOKEN}"
+                                ad_res = requests.get(req_url, timeout=30).json()
+                                
+                                if 'error' in ad_res:
+                                    st.error(f"FB Ошибка [{display_name}]: {ad_res['error'].get('message')}")
+                                else:
+                                    acc_id = ad_res.get('account_id')
+                                    creative_data = ad_res.get('adcreatives', {}).get('data', [{}])[0]
                                     
-                            if not img_url:
-                                video_image_hash = oss.get('video_data', {}).get('image_hash')
-                                if video_image_hash and acc_id:
-                                    try:
-                                        hr2 = requests.get(
+                                    oss = creative_data.get('object_story_spec', {})
+                                    is_video_creative = (
+                                        bool(oss.get('video_data', {}).get('video_id')) or
+                                        bool(creative_data.get('asset_feed_spec', {}).get('videos'))
+                                    )
+                                    
+                                    hashes = []
+                                    if creative_data.get('image_hash'):
+                                        hashes.append(creative_data.get('image_hash'))
+                                    if 'asset_feed_spec' in creative_data:
+                                        for img_obj in creative_data['asset_feed_spec'].get('images', []):
+                                            if img_obj.get('hash'):
+                                                hashes.append(img_obj['hash'])
+                                                
+                                    if hashes and acc_id:
+                                        hash_res = requests.get(
                                             f"https://graph.facebook.com/v19.0/act_{acc_id}/adimages",
-                                            params={"hashes": json.dumps([video_image_hash]), "fields": "url", "access_token": TOKEN},
+                                            params={"hashes": json.dumps(list(set(hashes))), "fields": "url,original_width,original_height", "access_token": TOKEN},
                                             timeout=20
                                         ).json()
-                                        if hr2.get('data'):
-                                            img_url = hr2['data'][0].get('url')
-                                    except: pass
-                                    
-                            video_id = oss.get('video_data', {}).get('video_id')
-                            if not video_id and creative_data.get('asset_feed_spec', {}).get('videos'):
-                                video_id = creative_data['asset_feed_spec']['videos'][0].get('video_id')
-                                
-                            if video_id:
-                                vid_res = requests.get(
-                                    f"https://graph.facebook.com/v19.0/{video_id}?fields=picture,source&access_token={TOKEN}",
-                                    timeout=20
-                                ).json()
-                                if 'error' not in vid_res:
-                                    video_src = vid_res.get('source')
-                                    if not img_url and vid_res.get('picture'):
-                                        img_url = re.sub(r'stp=[^&]*&?', '', vid_res['picture']).rstrip('?&') or None
+                                        if hash_res.get('data'):
+                                            best = None
+                                            for img_info in hash_res['data']:
+                                                w = int(img_info.get('original_width', 0))
+                                                h = int(img_info.get('original_height', 0))
+                                                if w > 0 and h > 0 and 0.9 <= (w/h) <= 1.1:
+                                                    best = img_info.get('url')
+                                                    break
+                                            img_url = best or hash_res['data'][0].get('url')
+                                            
+                                    if not img_url:
+                                        video_image_hash = oss.get('video_data', {}).get('image_hash')
+                                        if video_image_hash and acc_id:
+                                            try:
+                                                hr2 = requests.get(
+                                                    f"https://graph.facebook.com/v19.0/act_{acc_id}/adimages",
+                                                    params={"hashes": json.dumps([video_image_hash]), "fields": "url", "access_token": TOKEN},
+                                                    timeout=20
+                                                ).json()
+                                                if hr2.get('data'):
+                                                    img_url = hr2['data'][0].get('url')
+                                            except: pass
+                                            
+                                    video_id = oss.get('video_data', {}).get('video_id')
+                                    if not video_id and creative_data.get('asset_feed_spec', {}).get('videos'):
+                                        video_id = creative_data['asset_feed_spec']['videos'][0].get('video_id')
                                         
-                            if not img_url:
-                                raw_fallback = creative_data.get('image_url') or creative_data.get('thumbnail_url') or ''
-                                if raw_fallback:
-                                    img_url = re.sub(r'stp=[^&]*&?', '', raw_fallback).rstrip('?&') or None
-                            
-                            if is_video_creative and not video_src:
-                                with st.empty():
-                                    drive_url = find_video_on_drive(ad_name, country_code=camp_country_code_c)
-                                if drive_url:
-                                    video_src = drive_url
-                                else:
-                                    with st.empty():
-                                        img_from_drive = find_image_on_drive(ad_name, country_code=camp_country_code_c)
-                                    if img_from_drive and not img_url:
-                                        img_url = img_from_drive
+                                    if video_id:
+                                        vid_res = requests.get(
+                                            f"https://graph.facebook.com/v19.0/{video_id}?fields=picture,source&access_token={TOKEN}",
+                                            timeout=20
+                                        ).json()
+                                        if 'error' not in vid_res:
+                                            video_src = vid_res.get('source')
+                                            if not img_url and vid_res.get('picture'):
+                                                img_url = re.sub(r'stp=[^&]*&?', '', vid_res['picture']).rstrip('?&') or None
+                                                
+                                    if not img_url:
+                                        raw_fallback = creative_data.get('image_url') or creative_data.get('thumbnail_url') or ''
+                                        if raw_fallback:
+                                            img_url = re.sub(r'stp=[^&]*&?', '', raw_fallback).rstrip('?&') or None
 
-                            if not img_url:
+                            except Exception as e:
+                                st.error(f"Сбой кода {display_name}: {repr(e)}")
+                        else:
+                            st.warning(f"⚠️ ID не найден в Excel для: '{display_name}'. Проверяем только на Google Drive...")
+
+                        # 2. ФОЛБЭК НА GOOGLE DRIVE (Выполняется ВСЕГДА, если нет фото или нет ID)
+                        if is_video_creative and not video_src:
+                            with st.empty():
+                                drive_url = find_video_on_drive(ad_name, country_code=camp_country_code_c)
+                            if drive_url:
+                                video_src = drive_url
+                            else:
                                 with st.empty():
                                     img_from_drive = find_image_on_drive(ad_name, country_code=camp_country_code_c)
-                                if img_from_drive:
+                                if img_from_drive and not img_url:
                                     img_url = img_from_drive
-                            
-                            # --------- ДЕБАГ В ИНТЕРФЕЙС ---------
-                            if not img_url and not video_src:
-                                if not creative_data:
-                                    st.warning(f"Пусто в FB: {display_name} (ad_id: {ad_id}) — нет данных adcreatives вообще!")
-                                else:
-                                    st.warning(f"Нет медиа: {display_name}. Ключи от FB: {list(creative_data.keys())}")
-                            # --------------------------------------
 
-                            gallery_items_c.append({'name': display_name, 'img_url': img_url, 'is_video': is_video_creative, 'video_src': video_src})
-
-                        except Exception as e:
-                            st.error(f"Сбой кода {display_name}: {repr(e)}")
-                            gallery_items_c.append({'name': display_name, 'img_url': None, 'is_video': False, 'video_src': None})
+                        if not img_url:
+                            with st.empty():
+                                img_from_drive = find_image_on_drive(ad_name, country_code=camp_country_code_c)
+                            if img_from_drive:
+                                img_url = img_from_drive
+                        
+                        gallery_items_c.append({'name': display_name, 'img_url': img_url, 'is_video': is_video_creative, 'video_src': video_src})
 
                     cards_html_c = ""
                     for item in gallery_items_c:
