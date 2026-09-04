@@ -873,14 +873,11 @@ try {{
                             gallery_items_c.append({'name': display_name, 'img_url': None, 'is_video': False, 'video_src': None})
                             continue
                         try:
-                            print(f"Запрашиваем FB API для: {display_name}")
                             req_url = f"https://graph.facebook.com/v19.0/{ad_id}?fields=account_id,adcreatives{{image_hash,image_url,thumbnail_url,object_story_spec,asset_feed_spec}}&access_token={TOKEN}"
                             ad_res = requests.get(req_url, timeout=30).json()
                             
                             if 'error' in ad_res:
-                                err_msg = ad_res['error'].get('message', 'Unknown error')
-                                print(f"❌ Ошибка FB API [{display_name}]: {err_msg}")
-                                st.toast(f"Ошибка FB API: {err_msg}")
+                                st.error(f"FB Ошибка [{display_name}]: {ad_res['error'].get('message')}")
                                 gallery_items_c.append({'name': display_name, 'img_url': None, 'is_video': False, 'video_src': None})
                                 continue
                             
@@ -964,19 +961,24 @@ try {{
                                     if img_from_drive and not img_url:
                                         img_url = img_from_drive
 
-                            # Финальный fallback — ищем фото на Drive даже если не видео
                             if not img_url:
                                 with st.empty():
                                     img_from_drive = find_image_on_drive(ad_name, country_code=camp_country_code_c)
                                 if img_from_drive:
                                     img_url = img_from_drive
                             
+                            # --------- ДЕБАГ В ИНТЕРФЕЙС ---------
+                            if not img_url and not video_src:
+                                if not creative_data:
+                                    st.warning(f"Пусто в FB: {display_name} (ad_id: {ad_id}) — нет данных adcreatives вообще!")
+                                else:
+                                    st.warning(f"Нет медиа: {display_name}. Ключи от FB: {list(creative_data.keys())}")
+                            # --------------------------------------
+
                             gallery_items_c.append({'name': display_name, 'img_url': img_url, 'is_video': is_video_creative, 'video_src': video_src})
-                            print(f"✅ Успех: {display_name}")
 
                         except Exception as e:
-                            print(f"❌ Ошибка в коде для {display_name}: {repr(e)}")
-                            st.toast(f"Сбой загрузки {display_name}: {repr(e)}")
+                            st.error(f"Сбой кода {display_name}: {repr(e)}")
                             gallery_items_c.append({'name': display_name, 'img_url': None, 'is_video': False, 'video_src': None})
 
                     cards_html_c = ""
