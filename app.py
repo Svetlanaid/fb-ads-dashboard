@@ -414,14 +414,25 @@ if main_tab == "Клиенты":
         if ad_col and adid_col and adset_col:
             for _, row in df_clients.dropna(subset=[ad_col, adid_col]).iterrows():
                 raw_ad = str(row[ad_col])
-                raw_id = str(row[adid_col]).replace('.0', '').strip()
+                
+                # Фикс: Pandas может прочитать длинные ID как числа (float)
+                try:
+                    raw_id = str(int(float(row[adid_col])))
+                except:
+                    raw_id = str(row[adid_col]).replace('.0', '').strip()
+                    
                 raw_adset = str(row[adset_col])
                 
                 if raw_ad.lower() != 'nan' and raw_id.lower() != 'nan' and raw_id:
-                    # Чистим названия теми же функциями, что и основную таблицу!
+                    # Чистим названия теми же функциями
                     c_ad = clean_cost(clean_creative_name_local(raw_ad))
                     c_adset = norm_adset_clients(raw_adset)
-                    ad_id_dict[(c_adset, c_ad)] = raw_id
+                    
+                    # Делаем ключ "пуленепробиваемым": всё с маленькой буквы и без пробелов
+                    safe_ad = str(c_ad).lower().replace(" ", "")
+                    safe_adset = str(c_adset).lower().replace(" ", "")
+                    
+                    ad_id_dict[(safe_adset, safe_ad)] = raw_id
         # -----------------------------------------------------------
 
         # Фильтры в сайдбаре
@@ -844,17 +855,21 @@ try {{
                     for display_name in unique_display_names_c:
                         ad_id_found = None
                         
+                        # Убираем регистр и пробелы для точного поиска
+                        safe_display = str(display_name).lower().replace(" ", "")
+                        
                         # 1. Ищем ID, совпадающий с городом (adset_norm) из нашей текущей таблицы
                         valid_adsets = df_cc[df_cc['Макет'] == display_name]['adset_norm'].unique()
                         for adset in valid_adsets:
-                            if (adset, display_name) in ad_id_dict:
-                                ad_id_found = ad_id_dict[(adset, display_name)]
+                            safe_adset = str(adset).lower().replace(" ", "")
+                            if (safe_adset, safe_display) in ad_id_dict:
+                                ad_id_found = ad_id_dict[(safe_adset, safe_display)]
                                 break
                                 
                         # 2. Если город почему-то не совпал, берем любой ID для этого макета из Экселя
                         if not ad_id_found:
                             for (st_adset, st_ad), st_id in ad_id_dict.items():
-                                if st_ad == display_name:
+                                if st_ad == safe_display:
                                     ad_id_found = st_id
                                     break
                                     
