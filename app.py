@@ -308,13 +308,11 @@ if main_tab == "Клиенты":
     if uploaded_file:
         df_clients = pd.read_excel(uploaded_file)
         
-        # -------- ИЗВЛЕЧЕНИЕ AD ID (В САМОМ НАЧАЛЕ ДО ФИЛЬТРАЦИИ) --------
+        # -------- ИЗВЛЕЧЕНИЕ AD ID (ПО ОЧИЩЕННОМУ НАЗВАНИЮ) --------
         ad_id_dict = {}
-        raw_name_to_original = {}
-        
         ad_col = next((c for c in df_clients.columns if str(c).strip().lower() == 'ad'), None)
         adid_col = next((c for c in df_clients.columns if str(c).strip().lower() in ['ad id', 'ad_id']), None)
-        adset_col = next((c for c in df_clients.columns if str(c).strip().lower() == 'adset'), None)
+        adset_col = next((c for c in df_clients.columns if str(c).strip().lower() == 'adset']), None)
         
         if ad_col:
             for _, row in df_clients.iterrows():
@@ -333,9 +331,12 @@ if main_tab == "Клиенты":
                             
                 raw_adset = str(row[adset_col]) if adset_col and adset_col in df_clients.columns else ""
                 
-                # Простая безопасная очистка без вызова функций
-                safe_ad = str(raw_ad).lower().strip()
-                safe_adset = str(raw_adset).lower().strip()
+                # Применяем ТЕ ЖЕ САМЫЕ функции очистки, что и для таблицы дашборда!
+                c_ad = clean_cost(clean_creative_name_local(raw_ad))
+                c_adset = norm_adset_clients(raw_adset)
+                
+                safe_ad = str(c_ad).lower().strip()
+                safe_adset = str(c_adset).lower().strip()
                 
                 if raw_id:
                     ad_id_dict[(safe_adset, safe_ad)] = raw_id
