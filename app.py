@@ -309,8 +309,9 @@ if main_tab == "Клиенты":
         df_clients = pd.read_excel(uploaded_file)
         
         # -------- ИЗВЛЕЧЕНИЕ AD ID (В САМОМ НАЧАЛЕ ДО ФИЛЬТРАЦИИ) --------
-        import re
         ad_id_dict = {}
+        raw_name_to_original = {}
+        
         ad_col = next((c for c in df_clients.columns if str(c).strip().lower() == 'ad'), None)
         adid_col = next((c for c in df_clients.columns if str(c).strip().lower() in ['ad id', 'ad_id']), None)
         adset_col = next((c for c in df_clients.columns if str(c).strip().lower() == 'adset'), None)
@@ -332,22 +333,14 @@ if main_tab == "Клиенты":
                             
                 raw_adset = str(row[adset_col]) if adset_col and adset_col in df_clients.columns else ""
                 
-                # Чистим названия
-                c_ad = clean_cost(clean_creative_name_local(raw_ad))
-                c_adset = norm_adset_clients(raw_adset)
+                # Простая безопасная очистка без вызова функций
+                safe_ad = str(raw_ad).lower().strip()
+                safe_adset = str(raw_adset).lower().strip()
                 
-                safe_ad = re.sub(r'[^a-zA-Zа-яА-ЯёЁ0-9]', '', str(c_ad)).lower()
-                safe_adset = re.sub(r'[^a-zA-Zа-яА-ЯёЁ0-9]', '', str(c_adset)).lower()
-                
-                # Сохраняем ID, если он есть в Экселе
                 if raw_id:
                     ad_id_dict[(safe_adset, safe_ad)] = raw_id
                     if safe_ad not in ad_id_dict:
                         ad_id_dict[safe_ad] = raw_id
-                        
-                # 🚀 ВСЕГДА сохраняем связь чистого имени с оригинальным ad_name для поиска через FB API
-                if safe_ad not in raw_name_to_original:
-                    raw_name_to_original[safe_ad] = str(row.get('ad_name', raw_ad))
         # -----------------------------------------------------------------
         
         # Нормализация названий кампаний
@@ -864,32 +857,20 @@ try {{
 
                     display_to_ad_id_c = {}
                     
-                    # Подбираем правильный ID для каждого макета
+                    # Ищем ID по нашим доп. столбцам Экселя
                     for display_name in unique_display_names_c:
                         ad_id_found = None
+                        safe_display = str(display_name).lower().strip()
                         
-                        # Берем сырое имя из таблицы, чтобы 1 в 1 совпало с Экселем
-                        raw_name_from_table = display_to_raw_c.get(display_name, display_name)
-                        
-                        # Супер-очистка для сравнения (только буквы и цифры)
-                        safe_display_raw = re.sub(r'[^a-zA-Zа-яА-ЯёЁ0-9]', '', str(raw_name_from_table)).lower()
-                        safe_display_clean = re.sub(r'[^a-zA-Zа-яА-ЯёЁ0-9]', '', str(display_name)).lower()
-                        
-                        # 1. Ищем с учетом города
                         valid_adsets = df_cc[df_cc['Макет'] == display_name]['adset_norm'].unique()
                         for adset in valid_adsets:
-                            safe_adset = re.sub(r'[^a-zA-Zа-яА-ЯёЁ0-9]', '', str(adset)).lower()
-                            if (safe_adset, safe_display_raw) in ad_id_dict:
-                                ad_id_found = ad_id_dict[(safe_adset, safe_display_raw)]
+                            safe_adset = str(adset).lower().strip()
+                            if (safe_adset, safe_display) in ad_id_dict:
+                                ad_id_found = ad_id_dict[(safe_adset, safe_display)]
                                 break
                                 
-                        # 2. Ищем без города (просто по сырому имени макета)
-                        if not ad_id_found and safe_display_raw in ad_id_dict:
-                            ad_id_found = ad_id_dict[safe_display_raw]
-                            
-                        # 3. Крайний случай: ищем по очищенному имени
-                        if not ad_id_found and safe_display_clean in ad_id_dict:
-                            ad_id_found = ad_id_dict[safe_display_clean]
+                        if not ad_id_found and safe_display in ad_id_dict:
+                            ad_id_found = ad_id_dict[safe_display]
                             
                         display_to_ad_id_c[display_name] = ad_id_found
 
