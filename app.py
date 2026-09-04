@@ -308,6 +308,37 @@ if main_tab == "Клиенты":
     if uploaded_file:
         df_clients = pd.read_excel(uploaded_file)
         
+        # -------- ИЗВЛЕЧЕНИЕ AD ID (В САМОМ НАЧАЛЕ ДО ФИЛЬТРАЦИИ) --------
+        import re
+        ad_id_dict = {}
+        ad_col = next((c for c in df_clients.columns if str(c).strip().lower() == 'ad'), None)
+        adid_col = next((c for c in df_clients.columns if str(c).strip().lower() in ['ad id', 'ad_id']), None)
+        adset_col = next((c for c in df_clients.columns if str(c).strip().lower() == 'adset'), None)
+        
+        if ad_col and adid_col:
+            for _, row in df_clients.iterrows():
+                raw_ad = str(row[ad_col])
+                
+                try:
+                    raw_id = str(int(float(row[adid_col])))
+                except:
+                    raw_id = str(row[adid_col]).replace('.0', '').strip()
+                    
+                raw_adset = str(row[adset_col]) if adset_col else ""
+                
+                if raw_ad.lower() != 'nan' and raw_id.lower() != 'nan' and raw_id:
+                    # Супер-очистка: оставляем ТОЛЬКО буквы и цифры для 100% совпадения
+                    safe_ad = re.sub(r'[^a-zA-Zа-яА-ЯёЁ0-9]', '', raw_ad).lower()
+                    safe_adset = re.sub(r'[^a-zA-Zа-яА-ЯёЁ0-9]', '', raw_adset).lower()
+                    
+                    ad_id_dict[(safe_adset, safe_ad)] = raw_id
+                    # Запасной вариант - просто по макету
+                    if safe_ad not in ad_id_dict:
+                        ad_id_dict[safe_ad] = raw_id
+        # -----------------------------------------------------------------
+        
+        # Нормализация названий кампаний
+        
         # Нормализация названий кампаний
         def norm_campaign_clients(name):
             name = str(name or "")
@@ -403,37 +434,6 @@ if main_tab == "Клиенты":
             (df_clients['Макет'].str.lower().str.strip() != 'nan') &
             (df_clients['Макет_raw'].str.lower().str.strip() != 'nan')
         ]
-
-        # -------- ИЗВЛЕЧЕНИЕ AD ID ИЗ ДОП. СТОЛБЦОВ ЭКСЕЛЯ --------
-        ad_id_dict = {}
-        # Ищем колонки по названию (независимо от регистра)
-        ad_col = next((c for c in df_clients.columns if str(c).strip().lower() == 'ad'), None)
-        adid_col = next((c for c in df_clients.columns if str(c).strip().lower() in ['ad id', 'ad_id']), None)
-        adset_col = next((c for c in df_clients.columns if str(c).strip().lower() == 'adset'), None)
-        
-        if ad_col and adid_col and adset_col:
-            for _, row in df_clients.dropna(subset=[ad_col, adid_col]).iterrows():
-                raw_ad = str(row[ad_col])
-                
-                # Фикс: Pandas может прочитать длинные ID как числа (float)
-                try:
-                    raw_id = str(int(float(row[adid_col])))
-                except:
-                    raw_id = str(row[adid_col]).replace('.0', '').strip()
-                    
-                raw_adset = str(row[adset_col])
-                
-                if raw_ad.lower() != 'nan' and raw_id.lower() != 'nan' and raw_id:
-                    # Чистим названия теми же функциями
-                    c_ad = clean_cost(clean_creative_name_local(raw_ad))
-                    c_adset = norm_adset_clients(raw_adset)
-                    
-                    # Делаем ключ "пуленепробиваемым": всё с маленькой буквы и без пробелов
-                    safe_ad = str(c_ad).lower().replace(" ", "")
-                    safe_adset = str(c_adset).lower().replace(" ", "")
-                    
-                    ad_id_dict[(safe_adset, safe_ad)] = raw_id
-        # -----------------------------------------------------------
 
         # Фильтры в сайдбаре
         with st.sidebar:
@@ -855,24 +855,29 @@ try {{
                     for display_name in unique_display_names_c:
                         ad_id_found = None
                         
-                        # Убираем регистр и пробелы для точного поиска
-                        safe_display = str(display_name).lower().replace(" ", "")
+                        # Берем сырое имя из таблицы, чтобы 1 в 1 совпало с Экселем
+                        raw_name_from_table = display_to_raw_c.get(display_name, display_name)
                         
-                        # 1. Ищем ID, совпадающий с городом (adset_norm) из нашей текущей таблицы
+                        # Супер-очистка для сравнения (только буквы и цифры)
+                        safe_display_raw = re.sub(r'[^a-zA-Zа-яА-ЯёЁ0-9]', '', str(raw_name_from_table)).lower()
+                        safe_display_clean = re.sub(r'[^a-zA-Zа-яА-ЯёЁ0-9]', '', str(display_name)).lower()
+                        
+                        # 1. Ищем с учетом города
                         valid_adsets = df_cc[df_cc['Макет'] == display_name]['adset_norm'].unique()
                         for adset in valid_adsets:
-                            safe_adset = str(adset).lower().replace(" ", "")
-                            if (safe_adset, safe_display) in ad_id_dict:
-                                ad_id_found = ad_id_dict[(safe_adset, safe_display)]
+                            safe_adset = re.sub(r'[^a-zA-Zа-яА-ЯёЁ0-9]', '', str(adset)).lower()
+                            if (safe_adset, safe_display_raw) in ad_id_dict:
+                                ad_id_found = ad_id_dict[(safe_adset, safe_display_raw)]
                                 break
                                 
-                        # 2. Если город почему-то не совпал, берем любой ID для этого макета из Экселя
-                        if not ad_id_found:
-                            for (st_adset, st_ad), st_id in ad_id_dict.items():
-                                if st_ad == safe_display:
-                                    ad_id_found = st_id
-                                    break
-                                    
+                        # 2. Ищем без города (просто по сырому имени макета)
+                        if not ad_id_found and safe_display_raw in ad_id_dict:
+                            ad_id_found = ad_id_dict[safe_display_raw]
+                            
+                        # 3. Крайний случай: ищем по очищенному имени
+                        if not ad_id_found and safe_display_clean in ad_id_dict:
+                            ad_id_found = ad_id_dict[safe_display_clean]
+                            
                         display_to_ad_id_c[display_name] = ad_id_found
 
                     camp_country_code_c = camp_name_c.strip()[:2].upper() if camp_name_c else None
