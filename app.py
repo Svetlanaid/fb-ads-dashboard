@@ -888,8 +888,89 @@ try {{
                         if not display_name or str(display_name).strip().lower() == 'nan':
                             continue
                             
-                        # Берем ID из нашего нового словаря
+                        # Четко берем ID для текущего макета с нуля
                         ad_id = display_to_ad_id_c.get(display_name)
+                        
+                        img_url = None
+                        video_src = None
+                        is_video_creative = False
+                        
+                        # 1. Если для этого конкретного макета есть ID в словаре — идем в Facebook
+                        if ad_id:
+                            try:
+                                req_url = f"https://graph.facebook.com/v19.0/{ad_id}?fields=account_id,adcreatives{{image_hash,image_url,thumbnail_url,object_story_spec,asset_feed_spec}}&access_token={TOKEN}"
+                                ad_res = requests.get(req_url, timeout=30).json()
+                                
+                                if 'error' in ad_res:
+                                    ad_id = None # Сбрасываем, если ФБ выдал ошибку
+                                else:
+                                    acc_id = ad_res.get('account_id')
+                                    creative_data = ad_res.get('adcreatives', {}).get('data', [{}])[0]
+                                    
+                                    oss = creative_data.get('object_story_spec', {})
+                                    is_video_creative = (
+                                        bool(oss.get('video_data', {}).get('video_id')) or
+                                        bool(creative_data.get('asset_feed_spec', {}).get('videos'))
+                                    )
+                                    
+                                    hashes = []
+                                    if creative_data.get('image_hash'):
+                                        hashes.append(creative_data.get('image_hash'))
+                                    if 'asset_feed_spec' in creative_data:
+                                        for img_obj in creative_data['asset_feed_spec'].get('images', []):
+                                            if img_obj.get('hash'):
+                                                hashes.append(img_obj['hash'])
+                                                
+                                    if hashes and acc_id:
+                                        hash_res = requests.get(
+                                            f"https://graph.facebook.com/v19.0/act_{acc_id}/adimages",
+                                            params={"hashes": json.dumps(list(set(hashes))), "fields": "url,original_width,original_height", "access_token": TOKEN},
+                                            timeout=20
+                                        ).json()
+                                        if hash_res.get('data'):
+                                            best = None
+                                            for img_info in hash_res['data']:
+                                                w = int(img_info.get('original_width', 0))
+                                                h = int(img_info.get('original_height', 0))
+                                                if w > 0 and h > 0 and 0.9 <= (w/h) <= 1.1:
+                                                    best = img_info.get('url')
+                                                    break
+                                            img_url = best or hash_res['data'][0].get('url')
+                                            
+                                    if not img_url:
+                                        video_image_hash = oss.get('video_data', {}).get('image_hash')
+                                        if video_image_hash and acc_id:
+                                            try:
+                                                hr2 = requests.get(
+                                                    f"https://graph.facebook.com/v19.0/act_{acc_id}/adimages",
+                                                    params={"hashes": json.dumps([video_image_hash]), "fields": "url", "access_token": TOKEN},
+                                                    timeout=20
+                                                ).json()
+                                                if hr2.get('data'):
+                                                    img_url = hr2['data'][0].get('url')
+                                            except: pass
+                                            
+                                    video_id = oss.get('video_data', {}).get('video_id')
+                                    if not video_id and creative_data.get('asset_feed_spec', {}).get('videos'):
+                                        video_id = creative_data['asset_feed_spec']['videos'][0].get('video_id')
+                                        
+                                    if video_id:
+                                        vid_res = requests.get(
+                                            f"https://graph.facebook.com/v19.0/{video_id}?fields=picture,source&access_token={TOKEN}",
+                                            timeout=20
+                                        ).json()
+                                        if 'error' not in vid_res:
+                                            video_src = vid_res.get('source')
+                                            if not img_url and vid_res.get('picture'):
+                                                img_url = re.sub(r'stp=[^&]*&?', '', vid_res['picture']).rstrip('?&') or None
+                                                
+                                    if not img_url:
+                                        raw_fallback = creative_data.get('image_url') or creative_data.get('thumbnail_url') or ''
+                                        if raw_fallback:
+                                            img_url = re.sub(r'stp=[^&]*&?', '', raw_fallback).rstrip('?&') or None
+
+                            except Exception as e:
+                                ad_id = None
                         
                         img_url = None
                         video_src = None
