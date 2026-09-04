@@ -874,8 +874,6 @@ try {{
                             continue
                         try:
                             ad_res = requests.get(
-                                try:
-                            ad_res = requests.get(
                                 f"https://graph.facebook.com/v19.0/{ad_id}"
                                 f"?fields=account_id,adcreatives{{image_hash,image_url,thumbnail_url,object_story_spec,asset_feed_spec}}"
                                 f"&access_token={TOKEN}", timeout=30
