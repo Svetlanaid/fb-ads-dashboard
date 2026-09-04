@@ -856,9 +856,8 @@ try {{
                                                         ad_name_to_id_c[orig] = ad['id']
                                                     break
                                     next_url = search_res.get('paging', {}).get('next')
-                                pass
-                            except:
-                                pass
+                            except Exception as fb_err:
+                                st.error(f"❌ Ошибка доступа к кабинету {acc_id_c}: {fb_err}")
 
                     camp_country_code_c = camp_name_c.strip()[:2].upper() if camp_name_c else None
                     top3_gallery_c = top3_c
@@ -870,6 +869,7 @@ try {{
                             continue
                         ad_id = ad_name_to_id_c.get(ad_name)
                         if not ad_id:
+                            st.warning(f"🚨 СКРИПТ ПРОПУСТИЛ МАКЕТ: '{display_name}'. Название не найдено в кабинетах: {all_acc_ids_c}")
                             gallery_items_c.append({'name': display_name, 'img_url': None, 'is_video': False, 'video_src': None})
                             continue
                         try:
