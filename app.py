@@ -404,6 +404,26 @@ if main_tab == "Клиенты":
             (df_clients['Макет_raw'].str.lower().str.strip() != 'nan')
         ]
 
+        # -------- ИЗВЛЕЧЕНИЕ AD ID ИЗ ДОП. СТОЛБЦОВ ЭКСЕЛЯ --------
+        ad_id_dict = {}
+        # Ищем колонки по названию (независимо от регистра)
+        ad_col = next((c for c in df_clients.columns if str(c).strip().lower() == 'ad'), None)
+        adid_col = next((c for c in df_clients.columns if str(c).strip().lower() in ['ad id', 'ad_id']), None)
+        adset_col = next((c for c in df_clients.columns if str(c).strip().lower() == 'adset'), None)
+        
+        if ad_col and adid_col and adset_col:
+            for _, row in df_clients.dropna(subset=[ad_col, adid_col]).iterrows():
+                raw_ad = str(row[ad_col])
+                raw_id = str(row[adid_col]).replace('.0', '').strip()
+                raw_adset = str(row[adset_col])
+                
+                if raw_ad.lower() != 'nan' and raw_id.lower() != 'nan' and raw_id:
+                    # Чистим названия теми же функциями, что и основную таблицу!
+                    c_ad = clean_cost(clean_creative_name_local(raw_ad))
+                    c_adset = norm_adset_clients(raw_adset)
+                    ad_id_dict[(c_adset, c_ad)] = raw_id
+        # -----------------------------------------------------------
+
         # Фильтры в сайдбаре
         with st.sidebar:
             st.header("Настройки")
@@ -818,46 +838,27 @@ try {{
                     for code in country_codes_c:
                         all_acc_ids_c.extend(COUNTRY_TO_ACC.get(code, []))
 
-                    # Строим карту с тремя вариантами нормализации для максимального покрытия
-                    unique_ad_names_clean_c = {}
-                    for n in unique_ad_names_c:
-                        unique_ad_names_clean_c[n.lower().strip()] = n
-                        unique_ad_names_clean_c[clean_creative_name_local(n).lower().strip()] = n
-                        unique_ad_names_clean_c[clean_cost(clean_creative_name_local(n)).lower().strip()] = n
-
-                    ad_name_to_id_c = {}
-                    with st.spinner(f"Ищем макеты кампании {camp_name_c}..."):
-                        for acc_id_c in all_acc_ids_c:
-                            try:
-                                next_url = f"https://graph.facebook.com/v19.0/act_{acc_id_c}/ads?fields=name,id,adcreatives{{name}}&limit=500&access_token={TOKEN}"
-                                total_ads_checked = 0
-                                while next_url:
-                                    search_res = requests.get(next_url, timeout=60).json()
-                                    if 'error' in search_res:
-                                        break
-                                    ads_on_page = search_res.get('data', [])
-                                    total_ads_checked += len(ads_on_page)
-                                    for ad in ads_on_page:
-                                        names_to_try = [ad.get('name', '')]
-                                        for cr in ad.get('adcreatives', {}).get('data', []):
-                                            names_to_try.append(cr.get('name', ''))
-                                        for raw_name in names_to_try:
-                                            if not raw_name:
-                                                continue
-                                            variants = [
-                                                raw_name.lower().strip(),
-                                                clean_creative_name_local(raw_name).lower().strip(),
-                                                clean_cost(clean_creative_name_local(raw_name)).lower().strip(),
-                                            ]
-                                            for v in variants:
-                                                if v in unique_ad_names_clean_c:
-                                                    orig = unique_ad_names_clean_c[v]
-                                                    if orig not in ad_name_to_id_c:
-                                                        ad_name_to_id_c[orig] = ad['id']
-                                                    break
-                                    next_url = search_res.get('paging', {}).get('next')
-                            except Exception as fb_err:
-                                st.error(f"❌ Ошибка доступа к кабинету {acc_id_c}: {fb_err}")
+                    display_to_ad_id_c = {}
+                    
+                    # Подбираем правильный ID для каждого макета
+                    for display_name in unique_display_names_c:
+                        ad_id_found = None
+                        
+                        # 1. Ищем ID, совпадающий с городом (adset_norm) из нашей текущей таблицы
+                        valid_adsets = df_cc[df_cc['Макет'] == display_name]['adset_norm'].unique()
+                        for adset in valid_adsets:
+                            if (adset, display_name) in ad_id_dict:
+                                ad_id_found = ad_id_dict[(adset, display_name)]
+                                break
+                                
+                        # 2. Если город почему-то не совпал, берем любой ID для этого макета из Экселя
+                        if not ad_id_found:
+                            for (st_adset, st_ad), st_id in ad_id_dict.items():
+                                if st_ad == display_name:
+                                    ad_id_found = st_id
+                                    break
+                                    
+                        display_to_ad_id_c[display_name] = ad_id_found
 
                     camp_country_code_c = camp_name_c.strip()[:2].upper() if camp_name_c else None
                     top3_gallery_c = top3_c
@@ -867,9 +868,12 @@ try {{
                     for ad_name, display_name in zip(unique_ad_names_c, unique_display_names_c):
                         if not display_name or str(display_name).strip().lower() == 'nan':
                             continue
-                        ad_id = ad_name_to_id_c.get(ad_name)
+                            
+                        # Берем ID из нашего нового словаря
+                        ad_id = display_to_ad_id_c.get(display_name)
+                        
                         if not ad_id:
-                            st.warning(f"🚨 СКРИПТ ПРОПУСТИЛ МАКЕТ: '{display_name}'. Название не найдено в кабинетах: {all_acc_ids_c}")
+                            st.warning(f"🚨 ПРОПУЩЕНО: '{display_name}'. ID не найден в доп. столбцах Excel (проверь столбцы Ad, Ad ID, Adset).")
                             gallery_items_c.append({'name': display_name, 'img_url': None, 'is_video': False, 'video_src': None})
                             continue
                         try:
