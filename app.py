@@ -315,26 +315,39 @@ if main_tab == "Клиенты":
         adid_col = next((c for c in df_clients.columns if str(c).strip().lower() in ['ad id', 'ad_id']), None)
         adset_col = next((c for c in df_clients.columns if str(c).strip().lower() == 'adset'), None)
         
-        if ad_col and adid_col:
+        if ad_col:
             for _, row in df_clients.iterrows():
                 raw_ad = str(row[ad_col])
-                
-                try:
-                    raw_id = str(int(float(row[adid_col])))
-                except:
-                    raw_id = str(row[adid_col]).replace('.0', '').strip()
+                if raw_ad.lower() == 'nan' or not raw_ad:
+                    continue
                     
-                raw_adset = str(row[adset_col]) if adset_col else ""
+                raw_id = None
+                if adid_col and adid_col in df_clients.columns:
+                    try:
+                        raw_id = str(int(float(row[adid_col])))
+                    except:
+                        val = str(row[adid_col]).replace('.0', '').strip()
+                        if val.lower() != 'nan' and val:
+                            raw_id = val
+                            
+                raw_adset = str(row[adset_col]) if adset_col and adset_col in df_clients.columns else ""
                 
-                if raw_ad.lower() != 'nan' and raw_id.lower() != 'nan' and raw_id:
-                    # Супер-очистка: оставляем ТОЛЬКО буквы и цифры для 100% совпадения
-                    safe_ad = re.sub(r'[^a-zA-Zа-яА-ЯёЁ0-9]', '', raw_ad).lower()
-                    safe_adset = re.sub(r'[^a-zA-Zа-яА-ЯёЁ0-9]', '', raw_adset).lower()
-                    
+                # Чистим названия
+                c_ad = clean_cost(clean_creative_name_local(raw_ad))
+                c_adset = norm_adset_clients(raw_adset)
+                
+                safe_ad = re.sub(r'[^a-zA-Zа-яА-ЯёЁ0-9]', '', str(c_ad)).lower()
+                safe_adset = re.sub(r'[^a-zA-Zа-яА-ЯёЁ0-9]', '', str(c_adset)).lower()
+                
+                # Сохраняем ID, если он есть в Экселе
+                if raw_id:
                     ad_id_dict[(safe_adset, safe_ad)] = raw_id
-                    # Запасной вариант - просто по макету
                     if safe_ad not in ad_id_dict:
                         ad_id_dict[safe_ad] = raw_id
+                        
+                # 🚀 ВСЕГДА сохраняем связь чистого имени с оригинальным ad_name для поиска через FB API
+                if safe_ad not in raw_name_to_original:
+                    raw_name_to_original[safe_ad] = str(row.get('ad_name', raw_ad))
         # -----------------------------------------------------------------
         
         # Нормализация названий кампаний
